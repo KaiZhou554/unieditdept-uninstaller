@@ -786,8 +786,9 @@ func (m *Model) viewportRows() int {
 
 /* ------------------------------ 列表分区映射 ------------------------------ */
 
-// noticeLines 是「其它软件」提示区占用的行数：空行 + 提示 + 空行。
-const noticeLines = 3
+// noticeLines 是「其它软件」提示区占用的行数：空行 + 最多两行提示 + 空行。
+// 提示文案偏长，窄窗口下会自动折成两行，因此这里按两行预留。
+const noticeLines = 4
 
 // lineIndex 返回 view 中第 v 个条目显示在第几渲染行。
 // 提示区插在外部软件之前，因此它后面的条目整体下移。
@@ -1187,14 +1188,17 @@ func (m *Model) renderList(width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-// noticeLine 渲染「其它软件」提示区中的一行；只有中间那行有文字，
-// 前后各留一个空行，把两个分区隔开。
+// noticeLine 渲染「其它软件」提示区中的第 offset 行。
+// 首尾是空行（把两个分区隔开），中间最多两行是折过行的提示文案。
 func (m *Model) noticeLine(width, offset int) string {
-	if offset != 1 {
+	if offset <= 0 || offset > noticeLines-2 {
 		return ""
 	}
-	st := theme.S()
-	return " " + st.Cool.Render(components.Truncate(m.txt.ExternalNotice, width-1, "…"))
+	lines := components.Wrap(m.txt.ExternalNotice, width-1, noticeLines-2)
+	if offset-1 >= len(lines) {
+		return ""
+	}
+	return " " + theme.S().ExternalNote.Render(lines[offset-1])
 }
 
 // renderHeader 渲染列表的列头。
@@ -1246,18 +1250,11 @@ func (m *Model) renderRow(sw core.Software, active bool, width int) string {
 	switch {
 	case m.phase == phaseConfirm && sw.Selected:
 		if sw.External {
-			// 外部条目同样两档交替，但走白色系，不混进粉红光带。
-			style := st.ExternalFlash
-			if (m.tick/4)%2 == 0 {
-				style = st.ExternalSel
-			}
-			return style.Render(plain)
+			// 外部条目扫过蓝紫光带，与 UniEditDept 条目的粉红光带区分开。
+			return ascii.CoolScanHighlight(plain, m.tick)
 		}
 		// 光带缓缓扫过，表示「这一条正等着你确认」。
 		return ascii.ScanHighlight(plain, m.tick)
-	case sw.External && !m.measured(sw):
-		// 非本程序管理的软件：统计中时整行用蓝紫色扫描动画。
-		return ascii.CoolGradient(plain, m.tick)
 	case active && sw.External:
 		return st.ExternalSel.Render(plain)
 	case active:
@@ -1455,7 +1452,7 @@ func (m *Model) taskLines(inner, rows int) []string {
 		// 正在处理的那条用擦除动画表现（外部软件用蓝紫，与列表一致）。
 		if idx == m.del.done && m.cfg.Animate {
 			if it.external {
-				lines = append(lines, " "+icon+" "+ascii.CoolGradient(strings.Repeat("░", len([]rune(body))), m.tick))
+				lines = append(lines, " "+icon+" "+ascii.CoolDissolve(body, float64(m.tick%24)/24))
 				continue
 			}
 			lines = append(lines, " "+icon+" "+ascii.Dissolve(body, float64(m.tick%24)/24))

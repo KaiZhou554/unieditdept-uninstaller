@@ -43,15 +43,21 @@ var (
 	Warn   = lipgloss.Color("#ffc46b")
 	Danger = lipgloss.Color("#ff5d73")
 
-	// 非 UniEditDept 软件（其它程序留下的数据）用的冷色与白色：
-	// 这套配色刻意偏离粉红主色，让人一眼看出「这不是本程序管理的对象」。
-	Cool     = lipgloss.Color("#7c8cf8")
-	CoolDark = lipgloss.Color("#2b2358")
-	CoolPale = lipgloss.Color("#b3a4f5")
+	// 非 UniEditDept 软件（其它程序留下的数据）用的灰阶。
+	// 这块是「顺带发现」的信息，不该比本程序管理的软件更抢眼：
+	// 说明文字压成深灰，条目用淡灰，光标行反白。
+	ExternalNote = lipgloss.Color("#7d7787")
+	ExternalText = lipgloss.Color("#c2bdcc")
+	ExternalRow  = lipgloss.Color("#d5d1de")
+	ExternalInk  = lipgloss.Color("#1a1420")
 
-	ExternalWhite = lipgloss.Color("#ffffff")
-	ExternalInk   = lipgloss.Color("#1a1420")
-	ExternalDim   = lipgloss.Color("#c9c4d8")
+	// 确认卸载时扫过外部条目的光带：深蓝 → 蓝 → 蓝紫。
+	// 亮端的感知亮度刻意压得比粉红光带（#ff5d73）低一点，
+	// 免得冷色反而更晃眼；有测试守着这个约束。
+	CoolScanDark = lipgloss.Color("#171c3a")
+	CoolScanMid  = lipgloss.Color("#33409c")
+	CoolScanPale = lipgloss.Color("#7080e6")
+	CoolScanInk  = lipgloss.Color("#e6eaff")
 
 	// 二次确认时的光带配色：暗端压得足够低，光带扫过时才不刺眼。
 	FlashOn  = lipgloss.Color("#ff5d73")
@@ -86,12 +92,11 @@ type Styles struct {
 	ChipOn  lipgloss.Style
 	ChipOff lipgloss.Style
 
-	// Cool 是外部分区提示文字；External 系列用于非 UniEditDept 的条目：
-	// 常态纯白，光标行反白（白底深字），待确认时在两档白之间交替。
-	Cool          lipgloss.Style
-	External      lipgloss.Style
-	ExternalSel   lipgloss.Style
-	ExternalFlash lipgloss.Style
+	// ExternalNote 是外部分区上方的说明文字（深灰）；
+	// External 是外部条目的常态（淡灰），ExternalSel 是它的光标行（反白）。
+	ExternalNote lipgloss.Style
+	External     lipgloss.Style
+	ExternalSel  lipgloss.Style
 }
 
 var styles = sync.OnceValue(func() *Styles {
@@ -126,10 +131,9 @@ var styles = sync.OnceValue(func() *Styles {
 		ChipOn:  lipgloss.NewStyle().Foreground(ChipOnInk).Background(ChipOnBg).Bold(true),
 		ChipOff: lipgloss.NewStyle().Foreground(ChipOffInk),
 
-		Cool:          lipgloss.NewStyle().Foreground(Cool).Bold(true),
-		External:      lipgloss.NewStyle().Foreground(ExternalWhite).Bold(true),
-		ExternalSel:   lipgloss.NewStyle().Foreground(ExternalInk).Background(ExternalWhite).Bold(true),
-		ExternalFlash: lipgloss.NewStyle().Foreground(ExternalInk).Background(ExternalDim).Bold(true),
+		ExternalNote: lipgloss.NewStyle().Foreground(ExternalNote),
+		External:     lipgloss.NewStyle().Foreground(ExternalText),
+		ExternalSel:  lipgloss.NewStyle().Foreground(ExternalInk).Background(ExternalRow),
 	}
 })
 

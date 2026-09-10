@@ -52,6 +52,16 @@ func Spark(tick int) string {
 // Dissolve 表现「正在擦除」的效果：左侧被替换为暗色块，光标处高亮。
 // 输入必须是纯文本（不含 ANSI 序列），否则转义序列会被破坏。
 func Dissolve(s string, progress float64) string {
+	return dissolve(s, progress, theme.PrimaryDark, theme.PrimaryPale)
+}
+
+// CoolDissolve 与 Dissolve 相同，但擦除块与光标走蓝紫色，
+// 用于非 UniEditDept 的条目。
+func CoolDissolve(s string, progress float64) string {
+	return dissolve(s, progress, theme.CoolScanDark, theme.CoolScanPale)
+}
+
+func dissolve(s string, progress float64, block, cursorColor lipgloss.Color) string {
 	runes := []rune(s)
 	if len(runes) == 0 {
 		return s
@@ -64,7 +74,7 @@ func Dissolve(s string, progress float64) string {
 	}
 	cut := int(math.Floor(float64(len(runes)) * progress))
 	if cut >= len(runes) {
-		return lipgloss.NewStyle().Foreground(theme.PrimaryDark).Render(strings.Repeat("░", len(runes)))
+		return lipgloss.NewStyle().Foreground(block).Render(strings.Repeat("░", len(runes)))
 	}
 	var head strings.Builder
 	for _, r := range runes[:cut] {
@@ -74,8 +84,8 @@ func Dissolve(s string, progress float64) string {
 			head.WriteRune('░')
 		}
 	}
-	erased := lipgloss.NewStyle().Foreground(theme.PrimaryDark).Render(head.String())
-	cursor := lipgloss.NewStyle().Foreground(theme.PrimaryPale).Bold(true).Render("█")
+	erased := lipgloss.NewStyle().Foreground(block).Render(head.String())
+	cursor := lipgloss.NewStyle().Foreground(cursorColor).Bold(true).Render("█")
 	return erased + cursor + string(runes[cut+1:])
 }
 
@@ -83,16 +93,25 @@ func Dissolve(s string, progress float64) string {
 
 // scanPalette 是扫描光带用到的背景色档位（由暗到亮）。
 var scanPalette = sync.OnceValue(func() []lipgloss.Style {
-	colors := theme.Ramp(12, theme.FlashOff, theme.PrimaryDeep, theme.FlashOn)
+	return scanPaletteOf(theme.FlashOff, theme.PrimaryDeep, theme.FlashOn, theme.FlashInk)
+})
+
+// coolScanPalette 是外部条目用的蓝紫光带。
+var coolScanPalette = sync.OnceValue(func() []lipgloss.Style {
+	return scanPaletteOf(theme.CoolScanDark, theme.CoolScanMid, theme.CoolScanPale, theme.CoolScanInk)
+})
+
+func scanPaletteOf(dark, mid, pale, ink lipgloss.Color) []lipgloss.Style {
+	colors := theme.Ramp(12, dark, mid, pale)
 	styles := make([]lipgloss.Style, len(colors))
 	for i, c := range colors {
 		styles[i] = lipgloss.NewStyle().
 			Background(c).
-			Foreground(theme.FlashInk).
+			Foreground(ink).
 			Bold(true)
 	}
 	return styles
-})
+}
 
 // ScanHighlight 给文本套上一条缓慢扫过的高亮光带。
 //
@@ -100,7 +119,17 @@ var scanPalette = sync.OnceValue(func() []lipgloss.Style {
 // 既能提示「这里需要再确认一次」，又不会一直刺激视觉。
 // 返回值不改变文本的显示宽度，因此不影响调用方的排版计算。
 func ScanHighlight(s string, tick int) string {
-	pal := scanPalette()
+	return highlight(s, tick, scanPalette())
+}
+
+// CoolScanHighlight 与 ScanHighlight 相同，但光带走蓝紫色（深蓝 → 蓝 → 蓝紫）。
+// 待确认时 UniEditDept 的条目扫过粉红光带，外部条目用这一条区分开；
+// 亮端刻意压暗一档，免得冷色比主色还晃眼。
+func CoolScanHighlight(s string, tick int) string {
+	return highlight(s, tick, coolScanPalette())
+}
+
+func highlight(s string, tick int, pal []lipgloss.Style) string {
 	if s == "" || len(pal) == 0 {
 		return s
 	}
@@ -156,22 +185,10 @@ var palette = sync.OnceValue(func() []lipgloss.Style {
 	return theme.RampStyles(colors)
 })
 
-// coolPalette 是外部分区用的蓝紫色带。
-var coolPalette = sync.OnceValue(func() []lipgloss.Style {
-	colors := theme.Ramp(24, theme.CoolDark, theme.Cool, theme.CoolPale)
-	return theme.RampStyles(colors)
-})
-
 // Gradient 为字符串施加横向渐变着色，shift 用于产生流动效果。
 // 输入必须是纯文本（不含 ANSI 序列）。
 func Gradient(s string, shift int) string {
 	return shade(s, shift, palette())
-}
-
-// CoolGradient 与 Gradient 相同，但使用蓝紫色带。
-// 它用来表示「正在统计的不是本程序管理的软件」，与粉红主色一眼区分。
-func CoolGradient(s string, shift int) string {
-	return shade(s, shift, coolPalette())
 }
 
 // shade 用给定的色带给字符串做横向渐变着色。

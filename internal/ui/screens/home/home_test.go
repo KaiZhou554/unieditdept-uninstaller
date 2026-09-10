@@ -3,6 +3,7 @@ package home
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/unieditdept/ued-uninstaller/internal/i18n"
 	"github.com/unieditdept/ued-uninstaller/internal/ui"
 	"github.com/unieditdept/ued-uninstaller/internal/ui/components"
+	"github.com/unieditdept/ued-uninstaller/internal/ui/theme"
 )
 
 // TestMain 强制真彩色，保证渲染路径与运行时一致。
@@ -307,10 +309,56 @@ func TestExternalSection(t *testing.T) {
 		t.Errorf("外部软件的占用应被异步统计出来：\n%s", view)
 	}
 
-	// 非 UniEditDept 的条目高亮为白色（主色是粉红，白色在这里是唯一的）。
-	if !strings.Contains(m.View(), "38;2;255;255;255") {
-		t.Error("外部条目应以白色显示")
+	// 外部条目是淡灰色，说明文字再压深一档；这块整体要比主色系低调。
+	if !strings.Contains(m.View(), rgb(theme.ExternalText)) {
+		t.Error("外部条目应以淡灰色显示")
 	}
+	if !strings.Contains(m.View(), rgb(theme.ExternalNote)) {
+		t.Error("说明文字应以深灰色显示")
+	}
+}
+
+// TestExternalConfirmUsesCoolScan 校验待确认时外部条目扫过的是蓝紫光带。
+// UniEditDept 的条目是粉红光带，两者必须能一眼分开。
+func TestExternalConfirmUsesCoolScan(t *testing.T) {
+	setupData(t)
+	addExternalApp(t, "OtherTool", 4096)
+	m := ready(t)
+
+	for m.cursor < len(m.view)-1 {
+		m = pressKey(m, tea.KeyDown)
+	}
+	m, _ = press(m, " ")
+	m, _ = press(m, "d")
+	if m.phase != phaseConfirm {
+		t.Fatal("应进入待确认状态")
+	}
+	// 逐行看：底栏的「确认卸载」提示本来就闪粉红，不能拿整屏来判断。
+	found := false
+	for _, line := range strings.Split(m.View(), "\n") {
+		if !strings.Contains(components.StripANSI(line), "OtherTool") {
+			continue
+		}
+		found = true
+		if !strings.Contains(line, rgb(theme.CoolScanPale)) {
+			t.Errorf("外部条目应扫过蓝紫色光带：%q", line)
+		}
+		if strings.Contains(line, rgb(theme.FlashOn)) {
+			t.Errorf("外部条目的光带不应是粉红色：%q", line)
+		}
+	}
+	if !found {
+		t.Fatal("没有找到外部条目所在的行")
+	}
+}
+
+// rgb 把主题色转换成 lipgloss 在真彩色下输出的 "r;g;b" 片段，便于断言。
+func rgb(c lipgloss.Color) string {
+	s := strings.TrimPrefix(string(c), "#")
+	r, _ := strconv.ParseInt(s[0:2], 16, 32)
+	g, _ := strconv.ParseInt(s[2:4], 16, 32)
+	b, _ := strconv.ParseInt(s[4:6], 16, 32)
+	return strconv.Itoa(int(r)) + ";" + strconv.Itoa(int(g)) + ";" + strconv.Itoa(int(b))
 }
 
 // TestExternalRowHighlight 校验外部条目作为光标行时反白（白底深字）。
@@ -325,8 +373,8 @@ func TestExternalRowHighlight(t *testing.T) {
 	if idx := m.view[m.cursor]; !m.items[idx].External {
 		t.Fatalf("光标应停在最后一条外部软件上，实际 %q", m.items[idx].Name)
 	}
-	if !strings.Contains(m.View(), "48;2;255;255;255") {
-		t.Error("外部条目作为光标行时应使用白色背景")
+	if !strings.Contains(m.View(), "48;2;"+rgb(theme.ExternalRow)) {
+		t.Error("外部条目作为光标行时应反白")
 	}
 }
 

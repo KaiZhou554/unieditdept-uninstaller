@@ -132,57 +132,94 @@ func TestScanHighlightEmpty(t *testing.T) {
 	}
 }
 
-// TestCoolGradientUsesCoolPalette 校验外部分区用的渐变是蓝紫色，而不是主色粉红。
-func TestCoolGradientUsesCoolPalette(t *testing.T) {
-	const s = "OtherTool"
-	out := CoolGradient(s, 0)
+// TestCoolScanHighlightUsesCoolPalette 校验外部条目的光带是蓝紫色，而不是主色粉红。
+func TestCoolScanHighlightUsesCoolPalette(t *testing.T) {
+	const s = "OtherTool  4.00 KB"
+	out := CoolScanHighlight(s, 0)
 	if stripAllSGR(out) != s {
 		t.Errorf("不应改变文本内容，实际 %q", stripAllSGR(out))
 	}
 	if !strings.ContainsRune(out, 0x1b) {
 		t.Fatal("应产生 ANSI 着色，否则后续断言失去意义")
 	}
-	if !hasBlueDominant(out) {
-		t.Errorf("应使用蓝紫色带（蓝色分量高于红色），实际 %q", out)
+	if !hasBlueDominantBackground(out) {
+		t.Errorf("光带背景应偏蓝紫（蓝色分量高于红色），实际 %q", out)
 	}
-	// 主色 #ff6699 的红色分量远高于蓝色，不该出现在冷色带里。
+	// 主色 #ff6699 的红色分量远高于蓝色，不该混进冷色光带。
 	if strings.Contains(out, "255;102;153") {
-		t.Error("蓝紫渐变里不应混入主色粉红")
+		t.Error("蓝紫光带里不应混入主色粉红")
 	}
 }
 
-// TestCoolGradientKeepsWidth 校验渐变只改颜色，不改显示宽度（排版依赖这一点）。
-func TestCoolGradientKeepsWidth(t *testing.T) {
-	for _, s := range []string{"", "pending", "OtherTool  4.00 KB  2026-09-10"} {
+// TestCoolScanHighlightKeepsWidth 校验蓝紫光带只改颜色，不改显示宽度。
+func TestCoolScanHighlightKeepsWidth(t *testing.T) {
+	samples := []string{"", "OtherTool  4.00 KB  2026-09-10", " 一个很长的外部软件名字 "}
+	for _, s := range samples {
 		want := ansi.StringWidth(s)
-		for tick := 0; tick < 48; tick++ {
-			if w := ansi.StringWidth(CoolGradient(s, tick)); w != want {
+		for tick := 0; tick < 120; tick++ {
+			if w := ansi.StringWidth(CoolScanHighlight(s, tick)); w != want {
 				t.Fatalf("tick=%d 时宽度由 %d 变为 %d", tick, want, w)
 			}
 		}
 	}
 }
 
-// TestCoolGradientMoves 校验蓝紫渐变会随时间流动。
-func TestCoolGradientMoves(t *testing.T) {
-	if CoolGradient("scanning slowly", 0) == CoolGradient("scanning slowly", 8) {
-		t.Error("渐变应随时间流动")
+// TestCoolScanHighlightIsRestrained 校验亮端没有比粉红光带更亮 ——
+// 用户的诉求是「酷炫但别太晃眼」，冷色一旦更亮就会更刺眼。
+func TestCoolScanHighlightIsRestrained(t *testing.T) {
+	cool := maxBackgroundLuma(CoolScanHighlight("SomeOtherApp  3.00 MB", 0))
+	warm := maxBackgroundLuma(ScanHighlight("SomeOtherApp  3.00 MB", 0))
+	if cool > warm {
+		t.Errorf("蓝紫光带的最高亮度 %d 不应超过粉红光带的 %d", cool, warm)
 	}
 }
 
-// hasBlueDominant 判断串里是否存在「蓝色分量高于红色分量」的 RGB 前景色。
-func hasBlueDominant(s string) bool {
-	const marker = "38;2;"
+// TestCoolDissolveKeepsWidth 校验蓝紫擦除动画同样不改变宽度。
+func TestCoolDissolveKeepsWidth(t *testing.T) {
+	const s = "SomeOtherApp        3.00 MB"
+	want := ansi.StringWidth(s)
+	for i := 0; i <= 24; i++ {
+		if w := ansi.StringWidth(CoolDissolve(s, float64(i)/24)); w != want {
+			t.Fatalf("progress=%d/24 时宽度由 %d 变为 %d", i, want, w)
+		}
+	}
+}
+
+// hasBlueDominantBackground 判断串里是否存在「蓝色分量高于红色分量」的 RGB 背景色。
+func hasBlueDominantBackground(s string) bool {
+	return anyBackgroundMatching(s, func(r, g, b int) bool { return b > r })
+}
+
+// maxBackgroundLuma 返回串中所有背景色里最高的粗略亮度。
+func maxBackgroundLuma(s string) int {
+	best := 0
+	anyBackgroundMatching(s, func(r, g, b int) bool {
+		if l := luma(r, g, b); l > best {
+			best = l
+		}
+		return false
+	})
+	return best
+}
+
+// luma 是感知亮度的粗略近似，用于比较两组配色的刺眼程度。
+func luma(r, g, b int) int { return (r*299 + g*587 + b*114) / 1000 }
+
+// anyBackgroundMatching 遍历串中所有 "48;2;R;G;B" 背景色并调用 fn；
+// fn 返回 true 时立即返回 true。
+func anyBackgroundMatching(s string, fn func(r, g, b int) bool) bool {
+	const marker = "48;2;"
 	for i := 0; i+len(marker) <= len(s); i++ {
 		if s[i:i+len(marker)] != marker {
 			continue
 		}
-		parts := strings.SplitN(s[i+len(marker):], ";", 3)
+		parts := strings.SplitN(s[i+len(marker):], ";", 4)
 		if len(parts) < 3 {
 			continue
 		}
 		r, errR := strconv.Atoi(parts[0])
-		if errR != nil {
+		g, errG := strconv.Atoi(parts[1])
+		if errR != nil || errG != nil {
 			continue
 		}
 		// 第三个分量后面可能紧跟 'm' 或 ';'。
@@ -191,7 +228,10 @@ func hasBlueDominant(s string) bool {
 			third = third[:j]
 		}
 		b, errB := strconv.Atoi(third)
-		if errB == nil && b > r {
+		if errB != nil {
+			continue
+		}
+		if fn(r, g, b) {
 			return true
 		}
 	}

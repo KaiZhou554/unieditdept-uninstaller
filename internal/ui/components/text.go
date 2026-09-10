@@ -67,3 +67,39 @@ func Center(s string, w int) string {
 	left := (w - n) / 2
 	return strings.Repeat(" ", left) + s + strings.Repeat(" ", w-n-left)
 }
+
+// Wrap 按显示宽度把文本折成最多 maxLines 行；放不下的部分截断并加省略号。
+//
+// 中文没有词边界，这里直接按显示宽度切分；对这类短提示足够用。
+func Wrap(s string, width, maxLines int) []string {
+	if width <= 0 || maxLines <= 0 || s == "" {
+		return nil
+	}
+	var lines []string
+	for s != "" {
+		if len(lines) == maxLines-1 {
+			lines = append(lines, Truncate(s, width, "…"))
+			break
+		}
+		line, rest := splitAt(s, width)
+		lines = append(lines, line)
+		s = rest
+	}
+	return lines
+}
+
+// splitAt 切出显示宽度不超过 width 的最长前缀。
+func splitAt(s string, width int) (head, rest string) {
+	used := 0
+	for i, r := range s {
+		w := Width(string(r))
+		if used+w > width {
+			if i == 0 {
+				return s, "" // 单个字符就超宽，整段返回，交给调用方截断
+			}
+			return s[:i], s[i:]
+		}
+		used += w
+	}
+	return s, ""
+}
