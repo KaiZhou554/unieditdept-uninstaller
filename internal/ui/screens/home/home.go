@@ -113,6 +113,8 @@ type Model struct {
 	// noticeAt 是 view 中第一个非 UniEditDept 软件的位置（-1 表示没有）。
 	// 它在渲染时决定「其它软件」提示区插在哪里。
 	noticeAt int
+	// noticeRowsCache 缓存提示区占用的行数；-1 表示需要重算（宽度或文案变了）。
+	noticeRowsCache int
 
 	sortMode core.SortMode
 	autoSort bool // 统计完成后是否自动按占用排序
@@ -161,18 +163,19 @@ func New(cfg config.Config, width, height int) *Model {
 	}
 	lang := i18n.Parse(cfg.Lang)
 	return &Model{
-		cfg:      cfg,
-		roots:    core.ResolveRoots(cfg.Namespace),
-		items:    nil,
-		index:    make(map[string]int),
-		lang:     lang,
-		txt:      i18n.Get(lang),
-		sortMode: core.SortBySize,
-		autoSort: true,
-		phase:    phaseScan,
-		noticeAt: -1,
-		w:        width,
-		h:        height,
+		cfg:             cfg,
+		roots:           core.ResolveRoots(cfg.Namespace),
+		items:           nil,
+		index:           make(map[string]int),
+		lang:            lang,
+		txt:             i18n.Get(lang),
+		sortMode:        core.SortBySize,
+		autoSort:        true,
+		phase:           phaseScan,
+		noticeAt:        -1,
+		noticeRowsCache: -1,
+		w:               width,
+		h:               height,
 	}
 }
 
@@ -191,6 +194,7 @@ func keyOf(sw core.Software) string { return softwareKey(sw.Name, sw.External) }
 func (m *Model) setLang(l i18n.Lang) {
 	m.lang = l
 	m.txt = i18n.Get(l)
+	m.noticeRowsCache = -1 // 文案变了，提示的折行数要重算
 }
 
 // Init 立即开始扫描（枚举 + 后台统计）。
@@ -233,6 +237,7 @@ func (m *Model) Update(msg tea.Msg) (ui.Screen, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
+		m.noticeRowsCache = -1 // 宽度变了，提示的折行数要重算
 		return m, nil
 
 	case ui.FrameMsg:
@@ -381,7 +386,8 @@ func (m *Model) applyCompleted(ev core.ScanCompleted) {
 // handleMouse 处理鼠标：滚轮滚动，左键点击命中可交互区域。
 func (m *Model) handleMouse(msg tea.MouseMsg) (ui.Screen, tea.Cmd) {
 	if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
-		if m.filtering {
+		// 与键盘保持一致：输入过滤、待确认、卸载期间都不滚动列表。
+		if m.filtering || m.phase == phaseConfirm || m.phase == phaseDelete {
 			return m, nil
 		}
 		if msg.Button == tea.MouseButtonWheelUp {
@@ -414,6 +420,11 @@ func (m *Model) activateHit(r hitRegion) (ui.Screen, tea.Cmd) {
 		return m, nil
 
 	case hitRow:
+		// 待确认与卸载期间不接受改动，否则用户会在「即将删除」的清单上
+		// 继续加选，而界面又不会给出对应的确认反馈。
+		if m.phase == phaseConfirm || m.phase == phaseDelete {
+			return m, nil
+		}
 		// 单击软件项：光标移过去并切换选中状态。
 		// row 直接记的就是 view 索引（渲染行与数据行之间有提示区，不能直接换算）。
 		m.cursor = r.row
@@ -760,6 +771,7 @@ func (m *Model) rebuild() {
 	m.view = m.view[:0]
 	m.index = make(map[string]int, len(m.items))
 	m.noticeAt = -1
+	m.noticeRowsCache = -1
 	q := strings.ToLower(strings.TrimSpace(m.filter))
 	for i := range m.items {
 		m.index[keyOf(m.items[i])] = i
@@ -786,9 +798,28 @@ func (m *Model) viewportRows() int {
 
 /* ------------------------------ 列表分区映射 ------------------------------ */
 
-// noticeLines 是「其它软件」提示区占用的行数：空行 + 最多两行提示 + 空行。
-// 提示文案偏长，窄窗口下会自动折成两行，因此这里按两行预留。
-const noticeLines = 4
+// noticeTextMax 是提示文案最多的折行数。
+const noticeTextMax = 2
+
+// noticeRows 返回「其它软件」提示区占用的行数：上下各一个空行，
+// 中间是折行后的文案。文案在宽窗口下只有一行，此时就不该再占一行空白 ——
+// 之前写死成四行，导致提示与下面的条目之间空了两行。
+func (m *Model) noticeRows() int {
+	if m.noticeAt < 0 {
+		return 0
+	}
+	if m.noticeRowsCache < 0 {
+		n := len(components.Wrap(m.txt.ExternalNotice, m.listInnerWidth()-1, noticeTextMax))
+		if n < 1 {
+			n = 1
+		}
+		m.noticeRowsCache = 2 + n
+	}
+	return m.noticeRowsCache
+}
+
+// listInnerWidth 返回列表 Box 的内容宽度，与 View 的布局保持一致。
+func (m *Model) listInnerWidth() int { return listWidthFor(m.w) - 4 }
 
 // lineIndex 返回 view 中第 v 个条目显示在第几渲染行。
 // 提示区插在外部软件之前，因此它后面的条目整体下移。
@@ -796,7 +827,7 @@ func (m *Model) lineIndex(v int) int {
 	if m.noticeAt < 0 || v <= m.noticeAt {
 		return v
 	}
-	return v + noticeLines
+	return v + m.noticeRows()
 }
 
 // lineCount 返回列表占用的渲染行总数（含提示区）。
@@ -804,7 +835,7 @@ func (m *Model) lineCount() int {
 	if m.noticeAt < 0 {
 		return len(m.view)
 	}
-	return len(m.view) + noticeLines
+	return len(m.view) + m.noticeRows()
 }
 
 // dataAt 把渲染行号还原成 view 索引；返回 -1 表示该行落在提示区里。
@@ -812,17 +843,29 @@ func (m *Model) dataAt(line int) int {
 	if m.noticeAt < 0 {
 		return line
 	}
+	rows := m.noticeRows()
 	switch {
 	case line < m.noticeAt:
 		return line
-	case line < m.noticeAt+noticeLines:
+	case line < m.noticeAt+rows:
 		return -1
 	default:
-		return line - noticeLines
+		return line - rows
 	}
 }
 
 /* ----------------------------------- 渲染 ----------------------------------- */
+
+// listWidthFor 返回给定终端宽度下列表 Box 的宽度（显示右侧面板时扣掉它和中间那列）。
+func listWidthFor(width int) int {
+	if width < 40 {
+		width = 40
+	}
+	if dw := detailWidth(width); dw > 0 {
+		return width - dw - 1
+	}
+	return width
+}
 
 // detailWidth 返回右侧任务面板的宽度；0 表示当前宽度下不显示面板。
 func detailWidth(width int) int {
@@ -1189,12 +1232,12 @@ func (m *Model) renderList(width, height int) string {
 }
 
 // noticeLine 渲染「其它软件」提示区中的第 offset 行。
-// 首尾是空行（把两个分区隔开），中间最多两行是折过行的提示文案。
+// 首尾是空行（把两个分区隔开），中间是折过行的提示文案。
 func (m *Model) noticeLine(width, offset int) string {
-	if offset <= 0 || offset > noticeLines-2 {
+	if offset <= 0 || offset >= m.noticeRows()-1 {
 		return ""
 	}
-	lines := components.Wrap(m.txt.ExternalNotice, width-1, noticeLines-2)
+	lines := components.Wrap(m.txt.ExternalNotice, width-1, noticeTextMax)
 	if offset-1 >= len(lines) {
 		return ""
 	}
@@ -1247,6 +1290,10 @@ func (m *Model) renderRow(sw core.Software, active bool, width int) string {
 	}
 
 	plain := components.Fit(components.StripANSI(sb.String()), width)
+	// 待确认与卸载期间光标不再高亮：此时有意义的只有「哪些会被删除」，
+	// 继续高亮光标行会让人误以为它也在处理范围内。
+	showCursor := active && m.phase != phaseConfirm && m.phase != phaseDelete
+
 	switch {
 	case m.phase == phaseConfirm && sw.Selected:
 		if sw.External {
@@ -1255,9 +1302,9 @@ func (m *Model) renderRow(sw core.Software, active bool, width int) string {
 		}
 		// 光带缓缓扫过，表示「这一条正等着你确认」。
 		return ascii.ScanHighlight(plain, m.tick)
-	case active && sw.External:
+	case showCursor && sw.External:
 		return st.ExternalSel.Render(plain)
-	case active:
+	case showCursor:
 		return st.RowSel.Render(plain)
 	case sw.External:
 		return st.External.Render(plain)

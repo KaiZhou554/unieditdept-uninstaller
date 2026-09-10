@@ -318,6 +318,102 @@ func TestExternalSection(t *testing.T) {
 	}
 }
 
+// TestExternalNoticeSpacing 校验提示与下面的条目之间只空一行。
+// 提示区行数曾经写死成四行，宽窗口下文案只占一行，于是多出两个空行。
+func TestExternalNoticeSpacing(t *testing.T) {
+	setupData(t)
+	addExternalApp(t, "OtherTool", 4096)
+	m := ready(t)
+
+	lines := strings.Split(components.StripANSI(m.View()), "\n")
+	noticeIdx := -1
+	for i, line := range lines {
+		if strings.Contains(line, m.txt.ExternalNotice) {
+			noticeIdx = i
+			break
+		}
+	}
+	if noticeIdx < 0 {
+		t.Fatalf("应显示外部软件提示：\n%s", strings.Join(lines, "\n"))
+	}
+	i := noticeIdx
+	for i < len(lines) && strings.Contains(lines[i], m.txt.ExternalNotice) {
+		i++ // 跳过折行的后续行
+	}
+	// 提示之后应当恰好隔一行（那一行在列表区里是空的）就接到外部条目。
+	if strings.Contains(lines[i], "OtherTool") {
+		t.Fatalf("提示与外部条目之间应空一行，实际紧挨着：%q", lines[i])
+	}
+	if !strings.Contains(lines[i+1], "OtherTool") {
+		t.Errorf("提示之后应只空一行，实际第 %d 行是 %q、第 %d 行是 %q",
+			i, lines[i], i+1, lines[i+1])
+	}
+}
+
+// TestConfirmIgnoresClicks 校验待确认期间单击列表不再改变选择。
+func TestConfirmIgnoresClicks(t *testing.T) {
+	setupData(t)
+	m := ready(t)
+
+	m = pressKey(m, tea.KeyDown)
+	m, _ = press(m, " ")
+	if !m.items[m.view[1]].Selected {
+		t.Fatal("前置条件：第二项应已选中")
+	}
+	m, _ = press(m, "d")
+	if m.phase != phaseConfirm {
+		t.Fatal("应进入待确认状态")
+	}
+
+	hit, ok := findHit(m, hitRow, func(r hitRegion) bool { return r.row == 0 })
+	if !ok {
+		t.Fatal("第一行应可点击")
+	}
+	before := m.items[m.view[0]].Selected
+	m, _ = clickHit(t, m, hit)
+	if m.items[m.view[0]].Selected != before {
+		t.Error("待确认期间单击不应改变选择")
+	}
+	if m.phase != phaseConfirm {
+		t.Errorf("待确认期间单击不应退出确认，实际 phase=%d", m.phase)
+	}
+}
+
+// TestConfirmHidesCursor 校验待确认期间光标行不再高亮 ——
+// 否则会让人以为光标停的那一项也在删除范围内。
+func TestConfirmHidesCursor(t *testing.T) {
+	setupData(t)
+	m := ready(t)
+
+	// 光标停回第一项，但只选中第三项。
+	m = pressKey(m, tea.KeyDown)
+	m = pressKey(m, tea.KeyDown)
+	m, _ = press(m, " ")
+	m = pressKey(m, tea.KeyUp)
+	m = pressKey(m, tea.KeyUp)
+	if m.cursor != 0 {
+		t.Fatalf("前置条件：光标应在首行，实际 %d", m.cursor)
+	}
+	cursorRow := m.items[m.view[m.cursor]].Name
+	if m.items[m.view[m.cursor]].Selected {
+		t.Fatal("前置条件：光标所在项不应被选中")
+	}
+
+	m, _ = press(m, "d")
+	if m.phase != phaseConfirm {
+		t.Fatal("应进入待确认状态")
+	}
+
+	for _, line := range strings.Split(m.View(), "\n") {
+		if !strings.Contains(components.StripANSI(line), cursorRow) {
+			continue
+		}
+		if strings.Contains(line, "48;2;"+rgb(theme.PrimaryDeep)) {
+			t.Errorf("待确认期间未选中的光标行不应高亮：%q", line)
+		}
+	}
+}
+
 // TestExternalConfirmUsesCoolScan 校验待确认时外部条目扫过的是蓝紫光带。
 // UniEditDept 的条目是粉红光带，两者必须能一眼分开。
 func TestExternalConfirmUsesCoolScan(t *testing.T) {
