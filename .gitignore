@@ -1,0 +1,9 @@
+# 构建产物
+/ued-uninstaller
+/ued-uninstaller.exe
+/dist/
+render-dump.txt
+
+# 测试与覆盖率
+*.out
+*.test

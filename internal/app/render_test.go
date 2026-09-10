@@ -1,0 +1,411 @@
+package app
+
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/unieditdept/ued-uninstaller/internal/config"
+	"github.com/unieditdept/ued-uninstaller/internal/ui"
+	"github.com/unieditdept/ued-uninstaller/internal/ui/components"
+	"github.com/unieditdept/ued-uninstaller/internal/ui/screens/home"
+)
+
+// setupData 在临时目录中构造三个根位置的软件数据。
+func setupData(t *testing.T) (dirs []string) {
+	t.Helper()
+	base := t.TempDir()
+	appdata := filepath.Join(base, "roaming")
+	local := filepath.Join(base, "local")
+	temp := filepath.Join(base, "temp")
+	t.Setenv("APPDATA", appdata)
+	t.Setenv("LOCALAPPDATA", local)
+	t.Setenv("TEMP", temp)
+
+	dirs = []string{
+		filepath.Join(appdata, "unieditdept", "NovaEditor"),
+		filepath.Join(local, "unieditdept", "NovaEditor"),
+		filepath.Join(temp, "unieditdept", "PixelForge"),
+		filepath.Join(appdata, "unieditdept", "一个名字非常非常长的软件用来测试截断行为abcdefghijklmnop"),
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		payload := make([]byte, 4096)
+		if err := os.WriteFile(filepath.Join(dir, "data.bin"), payload, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dirs
+}
+
+// driveUntilIdle 反复执行命令并回灌消息，直到没有待执行的命令。
+func driveUntilIdle(t *testing.T, s ui.Screen, first tea.Cmd, limit int) ui.Screen {
+	t.Helper()
+	pending := []tea.Cmd{first}
+	for i := 0; i < limit; i++ {
+		if len(pending) == 0 {
+			return s
+		}
+		var next []tea.Cmd
+		for _, c := range pending {
+			if c == nil {
+				continue
+			}
+			msg := c()
+			if msg == nil {
+				continue
+			}
+			if batch, ok := msg.(tea.BatchMsg); ok {
+				next = append(next, batch...)
+				continue
+			}
+			var cmd tea.Cmd
+			s, cmd = s.Update(msg)
+			if cmd != nil {
+				next = append(next, cmd)
+			}
+		}
+		pending = next
+	}
+	t.Fatal("命令驱动超过上限仍未结束")
+	return s
+}
+
+// newScannedHome 创建一个已完成扫描的主界面。
+func newScannedHome(t *testing.T) ui.Screen {
+	t.Helper()
+	screen := ui.Screen(home.New(testConfig(), 0, 0))
+	return driveUntilIdle(t, screen, screen.Init(), 5000)
+}
+
+func testConfig() config.Config {
+	cfg := config.Default()
+	cfg.Animate = false
+	return cfg
+}
+
+func press(s ui.Screen, key string) (ui.Screen, tea.Cmd) {
+	return s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+}
+
+func render(s ui.Screen, w, h int) []string {
+	next, _ := s.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	return strings.Split(next.View(), "\n")
+}
+
+// checkFits 校验界面在指定尺寸下不溢出。
+func checkFits(t *testing.T, name string, s ui.Screen, w, h int) {
+	t.Helper()
+	lines := render(s, w, h)
+	if len(lines) > h {
+		t.Errorf("%s 在 %dx%d 下渲染了 %d 行，超出高度", name, w, h, len(lines))
+	}
+	for i, line := range lines {
+		if got := components.Width(line); got > w {
+			t.Errorf("%s 在 %dx%d 下第 %d 行宽度为 %d，超出宽度:\n%s", name, w, h, i+1, got, line)
+		}
+	}
+}
+
+var sizes = [][2]int{{80, 24}, {100, 30}, {120, 40}, {160, 50}, {200, 60}}
+
+// TestHomeLayout 校验主界面在常见尺寸下不溢出。
+func TestHomeLayout(t *testing.T) {
+	setupData(t)
+	screen := newScannedHome(t)
+	for _, size := range sizes {
+		checkFits(t, "idle", screen, size[0], size[1])
+	}
+
+	// 待确认状态
+	confirming, _ := press(screen, "d")
+	for _, size := range sizes {
+		checkFits(t, "confirm", confirming, size[0], size[1])
+	}
+
+	// 帮助覆盖层
+	help, _ := press(screen, "?")
+	for _, size := range sizes {
+		checkFits(t, "help", help, size[0], size[1])
+	}
+
+	// 过滤状态
+	filtering, _ := press(screen, "/")
+	filtering, _ = press(filtering, "e")
+	for _, size := range sizes {
+		checkFits(t, "filter", filtering, size[0], size[1])
+	}
+}
+
+// sgrPattern 匹配完整的 SGR 序列，用于检测残留的转义序列。
+var sgrPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// hasBrokenANSI 判断字符串中是否残留未闭合的 ANSI 转义序列。
+// 未闭合的序列会让终端吞掉后续内容，表现为半行文字凭空消失。
+func hasBrokenANSI(s string) bool {
+	return strings.Contains(sgrPattern.ReplaceAllString(s, ""), "\x1b")
+}
+
+// TestNoBrokenANSISequences 校验各种宽度下都不会产生未闭合的转义序列。
+func TestNoBrokenANSISequences(t *testing.T) {
+	setupData(t)
+	screen := newScannedHome(t)
+	for w := 40; w <= 200; w++ {
+		for _, line := range render(screen, w, 24) {
+			if hasBrokenANSI(line) {
+				t.Fatalf("宽度 %d 出现未闭合的 ANSI 序列：%q", w, line)
+			}
+		}
+	}
+}
+
+// TestFooterKeepsFirstBinding 校验底部提示在各宽度下都完整保留首项。
+//
+// 这条断言曾经失败过：footer 因为宽度算错而误判超宽，触发了一次会切断 ANSI
+// 序列的截断，结果底部只剩 "↑/" 而其余内容被终端吞掉。
+func TestFooterKeepsFirstBinding(t *testing.T) {
+	setupData(t)
+	screen := newScannedHome(t)
+	// 选中两项，让右侧统计信息变长，制造最容易触发截断的情况。
+	screen, _ = press(screen, " ")
+	screen, _ = press(screen, "j")
+	screen, _ = press(screen, " ")
+
+	for _, s := range [][2]int{{40, 24}, {60, 24}, {80, 24}, {100, 30}, {126, 22}, {126, 24}, {140, 40}, {200, 60}} {
+		w, h := s[0], s[1]
+		lines := render(screen, w, h)
+		footer := components.StripANSI(lines[len(lines)-1])
+		if !strings.Contains(footer, "↑/↓") {
+			t.Errorf("宽度 %d 下底部提示不完整，实际：%q", w, footer)
+		}
+		if !strings.Contains(footer, "已选 2 项") {
+			t.Errorf("宽度 %d 下底部统计信息不完整，实际：%q", w, footer)
+		}
+	}
+}
+
+// driveApp 驱动根模型，直到没有待执行的命令。
+func driveApp(t *testing.T, m *Model, first tea.Cmd) *Model {
+	t.Helper()
+	pending := []tea.Cmd{first}
+	for i := 0; i < 5000; i++ {
+		if len(pending) == 0 {
+			return m
+		}
+		var next []tea.Cmd
+		for _, c := range pending {
+			if c == nil {
+				continue
+			}
+			msg := c()
+			if msg == nil {
+				continue
+			}
+			if batch, ok := msg.(tea.BatchMsg); ok {
+				next = append(next, batch...)
+				continue
+			}
+			updated, cmd := m.Update(msg)
+			m = updated.(*Model)
+			if cmd != nil {
+				next = append(next, cmd)
+			}
+		}
+		pending = next
+	}
+	t.Fatal("驱动根模型超过上限仍未结束")
+	return m
+}
+
+// TestRescanKeepsTerminalSize 校验重新扫描后仍沿用当前终端尺寸。
+//
+// 曾经这里会退回构造时的默认尺寸，表现为「按 R 重扫后界面突然缩小，
+// 必须改变窗口大小才能恢复」——因为新建的屏幕并不知道终端有多大。
+func TestRescanKeepsTerminalSize(t *testing.T) {
+	setupData(t)
+	m := New(testConfig(), 0, 0)
+
+	// bubbletea 启动时会下发一次真实尺寸。
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = updated.(*Model)
+	m = driveApp(t, m, m.Init())
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	m = updated.(*Model)
+	if cmd == nil {
+		t.Fatal("按 R 应触发重新扫描")
+	}
+	msg := cmd()
+	if _, ok := msg.(ui.RescanMsg); !ok {
+		t.Fatalf("期望 ui.RescanMsg，实际 %T", msg)
+	}
+	updated, _ = m.Update(msg)
+	m = updated.(*Model)
+
+	lines := strings.Split(m.View(), "\n")
+	if len(lines) != 30 {
+		t.Errorf("重扫后渲染高度应为 30，实际 %d", len(lines))
+	}
+	if got := components.Width(lines[0]); got != 120 {
+		t.Errorf("重扫后渲染宽度应为 120，实际 %d", got)
+	}
+}
+
+// TestHomeSmallTerminal 校验极小终端下不崩溃。
+func TestHomeSmallTerminal(t *testing.T) {
+	setupData(t)
+	screen := newScannedHome(t)
+	_ = render(screen, 30, 8)
+	_ = render(screen, 40, 10)
+}
+
+// TestHomeConfirmCancel 校验二次确认被其它键取消后不会删除任何文件，并恢复进入前的选中。
+func TestHomeConfirmCancel(t *testing.T) {
+	dirs := setupData(t)
+	screen := newScannedHome(t)
+
+	// 进入列表后未做选择 → 按 D 会自动选中光标项 → 取消后应恢复为未选中。
+	screen, _ = press(screen, "d")
+	view := strings.Join(render(screen, 100, 30), "\n")
+	if !strings.Contains(view, "再次按 D 确认") {
+		t.Error("待确认状态下应出现“再次按 D 确认”提示")
+	}
+	screen, _ = press(screen, "x")
+	view = strings.Join(render(screen, 100, 30), "\n")
+	if !strings.Contains(view, "已取消") {
+		t.Error("取消后应给出提示")
+	}
+	if !strings.Contains(view, "已选 0 项") {
+		t.Errorf("取消后应清空临时选中的项\n%s", view)
+	}
+	for _, dir := range dirs {
+		if _, err := os.Stat(dir); err != nil {
+			t.Errorf("取消后目录不应被删除: %s", dir)
+		}
+	}
+}
+
+// TestHomeConfirmPreservesUserSelection 校验用户主动选中的软件在取消后保留。
+func TestHomeConfirmPreservesUserSelection(t *testing.T) {
+	dirs := setupData(t)
+	screen := newScannedHome(t)
+
+	// 用户主动选中 2 个软件（不动光标 = 第一个；↓ + space = 第二个）。
+	screen, _ = press(screen, " ")
+	screen, _ = press(screen, "j")
+	screen, _ = press(screen, " ")
+	view := strings.Join(render(screen, 100, 30), "\n")
+	if !strings.Contains(view, "已选 2 项") {
+		t.Errorf("手动选中 2 项失败:\n%s", view)
+	}
+
+	screen, _ = press(screen, "d") // 待确认
+	view = strings.Join(render(screen, 100, 30), "\n")
+	if !strings.Contains(view, "再次按 D 确认") {
+		t.Errorf("应进入待确认\n%s", view)
+	}
+	if !strings.Contains(view, "2 项") {
+		t.Errorf("待确认界面应显示 2 项")
+	}
+
+	screen, _ = press(screen, "x") // 取消
+	view = strings.Join(render(screen, 100, 30), "\n")
+	if !strings.Contains(view, "已取消") {
+		t.Errorf("应显示已取消\n%s", view)
+	}
+	if !strings.Contains(view, "已选 2 项") {
+		t.Errorf("用户手动选中的 2 项应保留:\n%s", view)
+	}
+	for _, dir := range dirs {
+		if _, err := os.Stat(dir); err != nil {
+			t.Errorf("取消后目录不应被删除: %s", dir)
+		}
+	}
+}
+
+// TestHomeDeleteFlow 校验「D → D」两段式确认后真的执行卸载。
+func TestHomeDeleteFlow(t *testing.T) {
+	dirs := setupData(t)
+	screen := newScannedHome(t)
+
+	screen, _ = press(screen, "a") // 全选
+	screen, _ = press(screen, "d") // 待确认
+	screen, cmd := press(screen, "d")
+	if cmd == nil {
+		t.Fatal("确认后应启动卸载任务")
+	}
+	screen = driveUntilIdle(t, screen, cmd, 5000)
+
+	view := strings.Join(render(screen, 100, 30), "\n")
+	if !strings.Contains(view, "卸载完成") {
+		t.Errorf("卸载完成后应显示结果，实际界面为:\n%s", view)
+	}
+	for _, dir := range dirs {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Errorf("目录应已被删除: %s", dir)
+		}
+	}
+}
+
+// TestHomeDeleteNothingSelected 校验没有选中项时 D 只作用于光标所在软件。
+func TestHomeDeleteNothingSelected(t *testing.T) {
+	setupData(t)
+	screen := newScannedHome(t)
+	screen, _ = press(screen, "d")
+	screen, cmd := press(screen, "d")
+	if cmd == nil {
+		t.Fatal("应启动卸载任务")
+	}
+	screen = driveUntilIdle(t, screen, cmd, 5000)
+	view := strings.Join(render(screen, 100, 30), "\n")
+	if !strings.Contains(view, "卸载完成") {
+		t.Errorf("应完成卸载，实际界面为:\n%s", view)
+	}
+}
+
+// TestDumpHome 在设置 UED_DUMP 时导出界面快照，便于人工检查。
+func TestDumpHome(t *testing.T) {
+	out := os.Getenv("UED_DUMP")
+	if out == "" {
+		t.Skip("未设置 UED_DUMP，跳过导出")
+	}
+	setupData(t)
+	screen := ui.Screen(home.New(testConfig(), 0, 0))
+
+	var sb strings.Builder
+	dump := func(name string, s ui.Screen) {
+		for _, size := range [][2]int{{80, 24}, {100, 30}} {
+			s.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+			s.Update(ui.FrameMsg{})
+			s.Update(ui.FrameMsg{})
+			s.Update(ui.FrameMsg{})
+			sb.WriteString("=== " + name + " (" + strconv.Itoa(size[0]) + "x" + strconv.Itoa(size[1]) + ") ===\n")
+			sb.WriteString(components.StripANSI(s.View()))
+			sb.WriteString("\n\n")
+		}
+	}
+
+	dump("启动（枚举完成，统计进行中）", screen)
+	screen = driveUntilIdle(t, screen, screen.Init(), 5000)
+	dump("空闲", screen)
+
+	screen, _ = press(screen, "a")
+	dump("已全选", screen)
+
+	screen, _ = press(screen, "d")
+	dump("待确认", screen)
+
+	screen, cmd := press(screen, "d")
+	screen = driveUntilIdle(t, screen, cmd, 5000)
+	dump("卸载结果", screen)
+
+	if err := os.WriteFile(out, []byte(sb.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
