@@ -357,6 +357,35 @@ func TestLanguageSwitch(t *testing.T) {
 	}
 }
 
+// TestEnglishSingularCounts 校验英文计数文案在数量为 1 时不会退化成 "1 apps"。
+//
+// 英文没有能同时读通 0/1/N 的复数形式，所以计数名词一律写成 "app(s)"；
+// 这条断言守住那个约定，避免以后又改回裸复数。
+func TestEnglishSingularCounts(t *testing.T) {
+	setupData(t)
+	screen := newScannedHome(t)
+	screen, _ = press(screen, "L") // 切到英文
+
+	// 只选中一项，然后进入待确认，让面板显示计数。
+	screen, _ = press(screen, " ")
+	screen, _ = press(screen, "d")
+
+	view := plainView(screen, 100, 30)
+	if !strings.Contains(view, "1 app(s)") {
+		t.Errorf("英文确认面板应显示 “1 app(s)”：\n%s", view)
+	}
+	for _, bad := range []string{"1 apps", "1 app "} {
+		if strings.Contains(view, bad) {
+			t.Errorf("英文文案不应出现 %q：\n%s", bad, view)
+		}
+	}
+
+	// 底栏的确认提示同理。
+	if !strings.Contains(view, "confirm 1 app(s)") {
+		t.Errorf("英文底栏应显示 “confirm 1 app(s)”：\n%s", view)
+	}
+}
+
 // TestEnglishLayoutFits 校验英文文案（通常更长）在各尺寸下同样不溢出。
 func TestEnglishLayoutFits(t *testing.T) {
 	setupData(t)
@@ -559,6 +588,13 @@ func TestDumpHome(t *testing.T) {
 
 	screen, _ = press(screen, "a")
 	dump("已全选", screen)
+
+	// 英文下的待确认面板：计数写成 "app(s)"，便于目视检查单复数与换行。
+	screen, _ = press(screen, "L")
+	screen, _ = press(screen, "d")
+	dump("English confirm", screen)
+	screen, _ = press(screen, "x")
+	screen, _ = press(screen, "L")
 
 	screen, _ = press(screen, "?")
 	dump("帮助", screen)

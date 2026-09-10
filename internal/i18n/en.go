@@ -24,19 +24,22 @@ var enStrings = &Strings{
 
 	LinkGitHub: "GitHub",
 
-	ScanningUsage:  "Scanning usage",
-	FolderProgress: "%s / %s folders",
+	ScanningUsage: "Scanning usage",
+	// Counting nouns carry "(s)": the counts here are routinely 1, and English
+	// has no plural form that reads right in every case ("1 apps" is wrong,
+	// while always-plural "folders" is wrong for "1 / 1").
+	FolderProgress: "%s / %s folder(s)",
 	FolderMeasured: "%s scanned",
 	ConfirmPending: "Awaiting confirmation",
-	AppCount:       "%s apps",
+	AppCount:       "%s app(s)",
 	WillFree:       "Will free %s",
 	AutoCancelIn:   "auto-cancel in %ss",
 	Removing:       "Removing",
 	DryRunning:     "Dry run",
 	Freed:          "Freed %s",
-	RemovedDirs:    "Removed %s folders",
+	RemovedDirs:    "Removed %s folder(s)",
 	Elapsed:        "Took %s",
-	PrunedDirs:     "Pruned %s empty folders",
+	PrunedDirs:     "Pruned %s empty folder(s)",
 	FailedCount:    "Failed: %s",
 	MoreItems:      "… %s more",
 	PressToRemove:  "Press D to remove",
@@ -63,7 +66,7 @@ var enStrings = &Strings{
 	KeyConfirmFilter: "apply",
 	KeyClear:         "clear",
 	KeyAbort:         "abort",
-	KeyConfirmN:      "confirm %s apps",
+	KeyConfirmN:      "confirm %s app(s)",
 	KeyCancel:        "cancel",
 	KeyAnyKey:        "any key",
 
