@@ -72,13 +72,17 @@
 
 版本号就是构建日期，格式 `yyMMdd`（例如 `260910`），显示在 TUI 右上角、GitHub 入口左侧，也用于 `--version`。
 
-仓库自带 `build.ps1`，会自动注入当天日期：
+仓库自带 `build.ps1`，会自动注入当天日期，并生成 Windows 版本资源：
 
 ```powershell
 .\build.ps1
 ```
 
-直接用 `go build` 而不注入时，会回退到可执行文件的构建时间（即文件修改时间），因此同样能得到构建当天的日期。
+这一步还会让 exe 在资源管理器 → 属性 → 详细信息里显示出文件说明、产品名称、公司、版权和文件/产品版本。Go 默认不写 VERSIONINFO 资源，少了这步这些字段就是空的。
+
+版本资源的文案在 [versioninfo.json](versioninfo.json)，其中 `__MAJOR__` / `__MINOR__` / `__PATCH__` / `__VERSION_DOTTED__` 由脚本按当天日期替换（`260910` → `26.9.10`）。生成的 `resource_windows_*.syso` 不入库，但 `go build` 只要在项目根目录看到它就会自动链接，所以手动构建前先跑一次 `build.ps1` 即可。
+
+直接用 `go build` 而不注入时，TUI 里的版本号会回退到可执行文件的构建时间（即文件修改时间），因此同样能得到构建当天的日期。
 
 ## 使用
 
@@ -87,7 +91,7 @@
 .\ued-uninstaller.exe
 ```
 
-或手动构建：
+或手动构建（先在 Windows 上跑过一次 `build.ps1`，让版本资源就位）：
 
 ```bash
 go build -o ued-uninstaller.exe .

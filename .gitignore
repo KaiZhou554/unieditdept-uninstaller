@@ -5,6 +5,10 @@
 /dist/
 render-dump.txt
 
+# 由 build.ps1 从 versioninfo.json 生成的 Windows 版本资源
+/resource*.syso
+/versioninfo.gen.json
+
 # 测试与覆盖率
 *.out
 *.test
