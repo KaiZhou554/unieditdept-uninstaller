@@ -7,23 +7,35 @@ import (
 	"github.com/unieditdept/ued-uninstaller/internal/ui/theme"
 )
 
-// Binding 描述一条快捷键说明。Alert 为 true 时该项会以醒目配色闪烁。
+// Binding 描述一条快捷键说明。
 type Binding struct {
 	Keys  []string
 	Desc  string
 	Alert bool
+	// Click 是点击这条提示时应当模拟按下的键，为空表示不可点击。
+	// 特殊值："any" 表示任意键（用于「其它键取消」），
+	// "enter" / "esc" 表示对应功能键，其余按单个字符处理。
+	Click string
+}
+
+// Span 描述某一条提示在整行中的水平位置，供鼠标点击命中判断使用。
+type Span struct {
+	Index int // 对应传入 bindings 的下标
+	Start int // 起始显示列（相对整行开头）
+	Width int // 显示宽度
 }
 
 // itemSep 是相邻两条快捷键之间的间隔宽度。
 const itemSep = 2
 
-// Help 把快捷键渲染成一行说明文本。
+// Help 把快捷键渲染成一行说明文本，并返回各条提示的位置。
 //
 // maxWidth > 0 时按键宽度取舍：先按纯文本宽度计算，放不下就整条丢弃，
 // 绝不对已着色的字符串做截断——那会在 ANSI 序列中间切断，导致残行。
 // tick 用于驱动告警项的闪烁。
-func Help(bindings []Binding, tick, maxWidth int) string {
+func Help(bindings []Binding, tick, maxWidth int) (string, []Span) {
 	st := theme.S()
+	spans := make([]Span, 0, len(bindings))
 
 	var sb strings.Builder
 	width := 0
@@ -65,6 +77,7 @@ func Help(bindings []Binding, tick, maxWidth int) string {
 			sb.WriteString(strings.Repeat(" ", sepW))
 			width += sepW
 		}
+		spans = append(spans, Span{Index: i, Start: width, Width: itemWidth()})
 		switch {
 		case b.Alert:
 			text := keys
@@ -80,7 +93,7 @@ func Help(bindings []Binding, tick, maxWidth int) string {
 		}
 		width += itemWidth()
 	}
-	return sb.String()
+	return sb.String(), spans
 }
 
 // Header 渲染顶部标题栏。

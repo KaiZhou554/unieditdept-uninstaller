@@ -58,6 +58,33 @@ type deleteState struct {
 	result core.DeleteResult
 }
 
+// hitKind 区分可点击区域的类型。
+type hitKind int
+
+const (
+	hitRow     hitKind = iota // 列表中的软件行
+	hitBinding                // 底部按键提示
+	hitLang                   // 右上角语言徽章
+)
+
+// hitRegion 是一块可点击区域，坐标以终端左上角为原点。
+type hitRegion struct {
+	kind  hitKind
+	x, y  int
+	w, h  int
+	row   int       // hitRow：数据行序号（相对可视区首行）
+	click string    // hitBinding：点击时模拟按下的键
+	lang  i18n.Lang // hitLang：目标语言
+	next  bool      // hitLang：点击的是 L 徽章
+}
+
+// langHit 是语言切换器中一枚徽章的位置（相对该行的起始列）。
+type langHit struct {
+	start, width int
+	lang         i18n.Lang
+	isKey        bool
+}
+
 // Model 是主屏幕。
 type Model struct {
 	cfg   config.Config
@@ -98,6 +125,9 @@ type Model struct {
 
 	message    string
 	messageTTL int
+
+	// hits 在每次渲染时重建，记录当前帧的可点击区域。
+	hits []hitRegion
 
 	w, h int
 }
@@ -193,16 +223,7 @@ func (m *Model) Update(msg tea.Msg) (ui.Screen, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
-		if m.filtering || m.phase == phaseConfirm || m.phase == phaseDelete {
-			return m, nil
-		}
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
-			m.move(-1)
-		case tea.MouseButtonWheelDown:
-			m.move(1)
-		}
-		return m, nil
+		return m.handleMouse(msg)
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -327,6 +348,71 @@ func (m *Model) applyCompleted(ev core.ScanCompleted) {
 	m.rebuild()
 	if m.cancel != nil {
 		m.cancel()
+	}
+}
+
+// handleMouse 处理鼠标：滚轮滚动，左键点击命中可交互区域。
+func (m *Model) handleMouse(msg tea.MouseMsg) (ui.Screen, tea.Cmd) {
+	if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+		if m.filtering {
+			return m, nil
+		}
+		if msg.Button == tea.MouseButtonWheelUp {
+			m.move(-1)
+		} else {
+			m.move(1)
+		}
+		return m, nil
+	}
+	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+		return m, nil
+	}
+	for _, r := range m.hits {
+		if msg.X >= r.x && msg.X < r.x+r.w && msg.Y >= r.y && msg.Y < r.y+r.h {
+			return m.activateHit(r)
+		}
+	}
+	return m, nil
+}
+
+// activateHit 执行点击区域对应的操作。
+func (m *Model) activateHit(r hitRegion) (ui.Screen, tea.Cmd) {
+	switch r.kind {
+	case hitLang:
+		if r.next {
+			m.setLang(m.lang.Next())
+		} else {
+			m.setLang(r.lang)
+		}
+		return m, nil
+
+	case hitRow:
+		// 单击软件项：光标移过去并切换选中状态。
+		m.cursor = m.top + r.row
+		m.clamp()
+		m.toggle()
+		return m, nil
+
+	case hitBinding:
+		return m.handleKey(keyMsgFor(r.click))
+	}
+	return m, nil
+}
+
+// keyMsgFor 把 Binding.Click 转换成对应的按键消息。
+func keyMsgFor(click string) tea.KeyMsg {
+	switch click {
+	case "":
+		return tea.KeyMsg{}
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "any":
+		// 任意一个不承担功能的键，用于「其它键取消」。
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")}
+	default:
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(click)}
 	}
 }
 
@@ -614,7 +700,21 @@ func (m *Model) viewportRows() int {
 
 /* ----------------------------------- 渲染 ----------------------------------- */
 
-// View 渲染整个界面。
+// detailWidth 返回右侧任务面板的宽度；0 表示当前宽度下不显示面板。
+func detailWidth(width int) int {
+	switch {
+	case width >= 120:
+		return 40
+	case width >= 100:
+		return 36
+	case width >= 78:
+		return 30
+	default:
+		return 0
+	}
+}
+
+// View 渲染整个界面，并顺带记录本帧的可点击区域。
 func (m *Model) View() string {
 	width, height := m.w, m.h
 	if width < 40 {
@@ -624,29 +724,33 @@ func (m *Model) View() string {
 		height = 10
 	}
 
+	icon := ascii.Spark(m.tick)
+	langText, langHits := m.langSwitcher()
 	rule := ascii.Rule(width, m.tick)
-	header := components.Header(ascii.Spark(m.tick), m.txt.AppTitle, m.langSwitcher(), width, rule)
+	header := components.Header(icon, m.txt.AppTitle, langText, width, rule)
+
 	right := m.footerRight()
-	footer := components.Footer(m.footerLeft(width, components.Width(right)), right, width)
+	bindings := m.bindings()
+	left, spans := components.Help(bindings, m.tick, width-components.Width(right)-2)
+	footer := components.Footer(left, right, width)
 
 	bodyHeight := height - 5
 	if bodyHeight < 5 {
 		bodyHeight = 5
 	}
 
+	detailW := detailWidth(width)
+	listW := width
+	if detailW > 0 {
+		listW = width - detailW - 1
+	}
+
 	var body string
 	switch {
 	case m.showHelp:
-		body = components.Box{Title: "快捷键", Width: width, Height: bodyHeight}.Render(strings.Join(m.helpLines(), "\n"))
-	case width >= 78:
-		detailW := 30
-		if width >= 100 {
-			detailW = 36
-		}
-		if width >= 120 {
-			detailW = 40
-		}
-		listW := width - detailW - 1
+		body = components.Box{Title: m.txt.TaskIdle, Width: width, Height: bodyHeight}.
+			Render(strings.Join(m.helpLines(), "\n"))
+	case detailW > 0:
 		body = lipgloss.JoinHorizontal(lipgloss.Top,
 			components.Box{Title: m.listTitle(), Width: listW, Height: bodyHeight, Active: true}.
 				Render(m.renderList(listW, bodyHeight)),
@@ -659,12 +763,84 @@ func (m *Model) View() string {
 			Render(m.renderList(width, bodyHeight))
 	}
 
+	m.rebuildHits(hitContext{
+		width:      width,
+		height:     height,
+		listW:      listW,
+		bodyHeight: bodyHeight,
+		iconW:      components.Width(icon),
+		langW:      components.Width(langText),
+		langHits:   langHits,
+		spans:      spans,
+		bindings:   bindings,
+	})
+
 	// 用 Place 强制输出固定尺寸，避免 bubbletea 行级 diff 错位导致旧内容残留。
 	view := header + "\n\n" + body + "\n\n" + footer
 	if m.h > 0 && m.w > 0 {
 		return lipgloss.Place(m.w, m.h, lipgloss.Left, lipgloss.Top, view)
 	}
 	return view
+}
+
+// hitContext 是重建可点击区域时需要知道的布局参数。
+type hitContext struct {
+	width, height int
+	listW         int
+	bodyHeight    int
+	iconW, langW  int
+	langHits      []langHit
+	spans         []components.Span
+	bindings      []components.Binding
+}
+
+// 布局常量：标题 2 行 + 空行之后是内容区，最后一行是底栏。
+const (
+	bodyTop  = 3 // 内容区首行（0 标题、1 分隔线、2 空行）
+	listHead = 2 // 边框 1 行 + 列头 1 行
+)
+
+// rebuildHits 依据当前帧的布局重建可点击区域。
+func (m *Model) rebuildHits(ctx hitContext) {
+	m.hits = m.hits[:0]
+
+	// 右上角语言徽章（第 0 行，右对齐）。标题太挤时 Header 会隐藏右侧，这里同步跳过。
+	if leftW := ctx.iconW + 1 + components.Width(m.txt.AppTitle); ctx.width-leftW-1 >= 8 &&
+		ctx.langW <= ctx.width-leftW-1 {
+		start := ctx.width - ctx.langW
+		for _, h := range ctx.langHits {
+			m.hits = append(m.hits, hitRegion{
+				kind: hitLang, x: start + h.start, y: 0, w: h.width, h: 1,
+				lang: h.lang, next: h.isKey,
+			})
+		}
+	}
+
+	// 软件列表的每一行。
+	if !m.showHelp && len(m.view) > 0 && ctx.bodyHeight > listHead {
+		rows := ctx.bodyHeight - listHead
+		for n := 0; n < rows; n++ {
+			if m.top+n >= len(m.view) {
+				break
+			}
+			m.hits = append(m.hits, hitRegion{
+				kind: hitRow, x: 0, y: bodyTop + listHead + n,
+				w: ctx.listW, h: 1, row: n,
+			})
+		}
+	}
+
+	// 底部按键提示（最后一个行）。
+	footerY := ctx.height - 1
+	for _, s := range ctx.spans {
+		if s.Index >= len(ctx.bindings) || ctx.bindings[s.Index].Click == "" {
+			continue
+		}
+		m.hits = append(m.hits, hitRegion{
+			kind: hitBinding, x: s.Start, y: footerY,
+			w: s.Width, h: 1, click: ctx.bindings[s.Index].Click,
+		})
+	}
 }
 
 func (m *Model) listTitle() string {
@@ -702,25 +878,38 @@ func (m *Model) footerRight() string { return version.String() }
 //
 // 采用中性灰的「小徽章」样式：L 键提示与当前语言都带底色（当前语言底色略亮），
 // 未选中的语言不带底色，与底部按键提示的观感一致但整体是中性色。
-func (m *Model) langSwitcher() string {
+// 同时返回各枚徽章的位置，供鼠标点击命中。
+func (m *Model) langSwitcher() (string, []langHit) {
 	st := theme.S()
-	parts := make([]string, 0, len(i18n.Order)*2)
+	hits := make([]langHit, 0, len(i18n.Order)+1)
+
+	var sb strings.Builder
+	col := 0
+	write := func(s string, w int) {
+		sb.WriteString(s)
+		col += w
+	}
+
+	key := st.Chip.Render(" L ")
+	keyW := components.Width(key)
+	hits = append(hits, langHit{start: col, width: keyW, isKey: true})
+	write(key, keyW)
+
 	for i, l := range i18n.Order {
 		if i > 0 {
-			parts = append(parts, st.ChipOff.Render("|"))
+			sep := st.ChipOff.Render("|")
+			write(sep, components.Width(sep))
 		}
 		style := st.ChipOff
 		if l == m.lang {
 			style = st.ChipOn
 		}
-		parts = append(parts, style.Render(" "+l.Label()+" "))
+		chip := style.Render(" " + l.Label() + " ")
+		chipW := components.Width(chip)
+		hits = append(hits, langHit{start: col, width: chipW, lang: l})
+		write(chip, chipW)
 	}
-	return st.Chip.Render(" L ") + " " + strings.Join(parts, " ")
-}
-
-// footerLeft 渲染底部左侧内容。reserved 是右侧统计信息已占用的宽度。
-func (m *Model) footerLeft(width, reserved int) string {
-	return components.Help(m.bindings(), m.tick, width-reserved-2)
+	return sb.String(), hits
 }
 
 // sortName 返回当前排序方式在该语言下的名称。
@@ -740,36 +929,38 @@ func (m *Model) bindings() []components.Binding {
 	switch {
 	case m.filtering:
 		return []components.Binding{
-			{Keys: []string{"enter"}, Desc: m.txt.KeyConfirmFilter},
-			{Keys: []string{"esc"}, Desc: m.txt.KeyClear},
+			{Keys: []string{"enter"}, Desc: m.txt.KeyConfirmFilter, Click: "enter"},
+			{Keys: []string{"esc"}, Desc: m.txt.KeyClear, Click: "esc"},
 		}
 	case m.phase == phaseConfirm:
 		return []components.Binding{
-			{Keys: []string{"D"}, Desc: fmt.Sprintf(m.txt.KeyConfirmN, core.HumanCount(core.SelectedCount(m.items))), Alert: true},
-			{Keys: []string{m.txt.KeyAnyKey}, Desc: m.txt.KeyCancel},
+			{Keys: []string{"D"}, Desc: fmt.Sprintf(m.txt.KeyConfirmN, core.HumanCount(core.SelectedCount(m.items))), Alert: true, Click: "d"},
+			{Keys: []string{m.txt.KeyAnyKey}, Desc: m.txt.KeyCancel, Click: "any"},
 		}
 	case m.phase == phaseDelete:
+		// 卸载中不接受操作，ctrl+c 也不适合用鼠标模拟。
 		return []components.Binding{{Keys: []string{"ctrl+c"}, Desc: m.txt.KeyAbort}}
 	case m.phase == phaseDone:
 		// 卸载已完成，列表可能已空，只留仍然有意义的两个键。
 		return []components.Binding{
-			{Keys: []string{"r"}, Desc: m.txt.KeyRescan},
-			{Keys: []string{"q"}, Desc: m.txt.KeyQuit},
+			{Keys: []string{"r"}, Desc: m.txt.KeyRescan, Click: "r"},
+			{Keys: []string{"q"}, Desc: m.txt.KeyQuit, Click: "q"},
 		}
 	}
 
 	// 按重要程度排列，放不下时从末尾开始舍弃。
+	// 方向键用鼠标拖动更自然，因此不做点击绑定。
 	return []components.Binding{
 		{Keys: []string{"↑", "↓"}, Desc: m.txt.KeyMove},
-		{Keys: []string{"space"}, Desc: m.txt.KeySelect},
-		{Keys: []string{"a"}, Desc: m.txt.KeySelectAll},
-		{Keys: []string{"d"}, Desc: m.txt.KeyUninstall},
-		{Keys: []string{"/"}, Desc: m.txt.KeySearch},
-		{Keys: []string{"s"}, Desc: fmt.Sprintf(m.txt.KeySort, m.sortName())},
-		{Keys: []string{"i"}, Desc: m.txt.KeyInvert},
-		{Keys: []string{"r"}, Desc: m.txt.KeyRescan},
-		{Keys: []string{"?"}, Desc: m.txt.KeyHelp},
-		{Keys: []string{"q"}, Desc: m.txt.KeyQuit},
+		{Keys: []string{"space"}, Desc: m.txt.KeySelect, Click: " "},
+		{Keys: []string{"a"}, Desc: m.txt.KeySelectAll, Click: "a"},
+		{Keys: []string{"d"}, Desc: m.txt.KeyUninstall, Click: "d"},
+		{Keys: []string{"/"}, Desc: m.txt.KeySearch, Click: "/"},
+		{Keys: []string{"s"}, Desc: fmt.Sprintf(m.txt.KeySort, m.sortName()), Click: "s"},
+		{Keys: []string{"i"}, Desc: m.txt.KeyInvert, Click: "i"},
+		{Keys: []string{"r"}, Desc: m.txt.KeyRescan, Click: "r"},
+		{Keys: []string{"?"}, Desc: m.txt.KeyHelp, Click: "?"},
+		{Keys: []string{"q"}, Desc: m.txt.KeyQuit, Click: "q"},
 	}
 }
 
