@@ -364,6 +364,40 @@ func TestEnglishLayoutFits(t *testing.T) {
 	}
 }
 
+// TestFooterCompleteAfterRemoval 校验卸载完成后底部仍是完整的按键列表，
+// 而不是被裁剪成只剩「重扫 / 退出」。
+func TestFooterCompleteAfterRemoval(t *testing.T) {
+	setupData(t)
+	screen := newScannedHome(t)
+	screen, _ = press(screen, "a")
+	screen, _ = press(screen, "d")
+	screen, cmd := press(screen, "d")
+	screen = driveUntilIdle(t, screen, cmd, 5000)
+
+	lines := render(screen, 180, 30)
+	footer := components.StripANSI(lines[len(lines)-1])
+	for _, want := range []string{"移动", "选择", "卸载", "重扫", "退出"} {
+		if !strings.Contains(footer, want) {
+			t.Errorf("卸载完成后底部应保留 %q，实际：%q", want, footer)
+		}
+	}
+}
+
+// TestHelpPageTitle 校验帮助页用的是自己的标题，而不是「卸载任务」。
+func TestHelpPageTitle(t *testing.T) {
+	setupData(t)
+	screen := newScannedHome(t)
+	help, _ := press(screen, "?")
+
+	view := plainView(help, 100, 30)
+	if !strings.Contains(view, "╭─ 快捷键 ") {
+		t.Errorf("帮助页标题应为「快捷键」:\n%s", view)
+	}
+	if strings.Contains(view, "创建日期为三个位置") {
+		t.Error("帮助页不应再解释创建日期")
+	}
+}
+
 // TestHomeSmallTerminal 校验极小终端下不崩溃。
 func TestHomeSmallTerminal(t *testing.T) {
 	setupData(t)

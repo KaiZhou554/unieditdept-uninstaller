@@ -20,6 +20,9 @@ var enStrings = &Strings{
 	TaskRemoving: "Removing",
 	TaskResult:   "Result",
 	TaskIdle:     "Uninstall",
+	TaskHelp:     "Shortcuts",
+
+	LinkGitHub: "GitHub",
 
 	ScanningUsage:  "Scanning usage",
 	FolderProgress: "%s / %s folders",
@@ -67,8 +70,7 @@ var enStrings = &Strings{
 	SortName: "name",
 	SortDate: "date",
 
-	HelpCreatedNote: "Created is the earliest folder among the three locations",
-	HelpCancelNote:  "In the confirm state any other key cancels, and it also times out.",
+	HelpCancelNote: "In the confirm state any other key cancels, and it also times out.",
 	HelpEntries: [][2]string{
 		{"↑ / ↓ · k / j", "move the cursor"},
 		{"PgUp / PgDn", "page up / down"},

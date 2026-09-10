@@ -20,6 +20,9 @@ var zhStrings = &Strings{
 	TaskRemoving: "卸载进度",
 	TaskResult:   "卸载结果",
 	TaskIdle:     "卸载任务",
+	TaskHelp:     "快捷键",
+
+	LinkGitHub: "GitHub",
 
 	ScanningUsage:  "正在统计占用",
 	FolderProgress: "%s / %s 个目录",
@@ -67,8 +70,7 @@ var zhStrings = &Strings{
 	SortName: "名称",
 	SortDate: "日期",
 
-	HelpCreatedNote: "创建日期为三个位置中最早创建的那个目录",
-	HelpCancelNote:  "待确认状态下按其它任意键即取消，超时也会自动取消。",
+	HelpCancelNote: "待确认状态下按其它任意键即取消，超时也会自动取消。",
 	HelpEntries: [][2]string{
 		{"↑ / ↓ · k / j", "上下移动光标"},
 		{"PgUp / PgDn", "翻页"},

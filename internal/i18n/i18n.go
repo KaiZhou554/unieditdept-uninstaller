@@ -81,6 +81,10 @@ type Strings struct {
 	TaskRemoving string
 	TaskResult   string
 	TaskIdle     string
+	TaskHelp     string
+
+	// 右上角链接
+	LinkGitHub string
 
 	// 任务面板内容
 	ScanningUsage  string
@@ -134,9 +138,8 @@ type Strings struct {
 	SortDate string
 
 	// 帮助页
-	HelpCreatedNote string
-	HelpCancelNote  string
-	HelpEntries     [][2]string
+	HelpCancelNote string
+	HelpEntries    [][2]string
 }
 
 // Get 返回指定语言的文案。

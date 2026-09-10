@@ -4,8 +4,25 @@ package platform
 import (
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 )
+
+// OpenURL 用系统默认程序打开链接（通常是浏览器）。
+func OpenURL(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		// rundll32 比 "cmd /c start" 更可靠，后者会把 & 之类当作命令分隔符。
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	return cmd.Start()
+}
 
 // PrepareForDelete 递归清除只读属性，尽量降低删除失败的概率。
 // 该操作是尽力而为的：单个文件的失败不会影响整体。

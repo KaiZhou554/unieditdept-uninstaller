@@ -3,6 +3,7 @@ package home
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -11,6 +12,7 @@ import (
 	"github.com/unieditdept/ued-uninstaller/internal/config"
 	"github.com/unieditdept/ued-uninstaller/internal/i18n"
 	"github.com/unieditdept/ued-uninstaller/internal/ui"
+	"github.com/unieditdept/ued-uninstaller/internal/ui/components"
 )
 
 // TestMain 强制真彩色，保证渲染路径与运行时一致。
@@ -214,6 +216,35 @@ func TestMouseClickLanguage(t *testing.T) {
 	m, _ = clickHit(t, m, zh)
 	if m.lang != i18n.ZH {
 		t.Errorf("单击简体中文后语言应为 zh，实际 %s", m.lang)
+	}
+}
+
+// TestMouseClickGitHub 校验单击 GitHub 入口会指向仓库地址。
+// 这里刻意不执行返回的命令——那会真的拉起浏览器。
+func TestMouseClickGitHub(t *testing.T) {
+	setupData(t)
+	m := ready(t)
+
+	hit, ok := findHit(m, hitLink, nil)
+	if !ok {
+		t.Fatal("右上角没有 GitHub 入口")
+	}
+	if hit.link != githubURL {
+		t.Errorf("链接应为 %s，实际 %s", githubURL, hit.link)
+	}
+	_, cmd := clickHit(t, m, hit)
+	if cmd == nil {
+		t.Fatal("单击 GitHub 应产生打开链接的命令")
+	}
+}
+
+// TestHeaderShowsGitHub 校验右上角确实显示了 GitHub 字样。
+func TestHeaderShowsGitHub(t *testing.T) {
+	setupData(t)
+	m := ready(t)
+	view := components.StripANSI(m.View())
+	if !strings.Contains(view, "GitHub") {
+		t.Errorf("右上角应显示 GitHub 入口:\n%s", view)
 	}
 }
 

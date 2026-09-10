@@ -8,6 +8,7 @@ package home
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/unieditdept/ued-uninstaller/internal/config"
 	"github.com/unieditdept/ued-uninstaller/internal/core"
 	"github.com/unieditdept/ued-uninstaller/internal/i18n"
+	"github.com/unieditdept/ued-uninstaller/internal/platform"
 	"github.com/unieditdept/ued-uninstaller/internal/ui"
 	"github.com/unieditdept/ued-uninstaller/internal/ui/ascii"
 	"github.com/unieditdept/ued-uninstaller/internal/ui/components"
@@ -65,7 +67,11 @@ const (
 	hitRow     hitKind = iota // 列表中的软件行
 	hitBinding                // 底部按键提示
 	hitLang                   // 右上角语言徽章
+	hitLink                   // 右上角链接
 )
+
+// githubURL 是右上角 GitHub 入口跳转的地址。
+const githubURL = "https://github.com/KaiZhou554/unieditdept-uninstaller"
 
 // hitRegion 是一块可点击区域，坐标以终端左上角为原点。
 type hitRegion struct {
@@ -76,13 +82,16 @@ type hitRegion struct {
 	click string    // hitBinding：点击时模拟按下的键
 	lang  i18n.Lang // hitLang：目标语言
 	next  bool      // hitLang：点击的是 L 徽章
+	link  string    // hitLink：要打开的链接
 }
 
-// langHit 是语言切换器中一枚徽章的位置（相对该行的起始列）。
-type langHit struct {
+// headerHit 是右上角一枚徽章的位置（相对该行的起始列）。
+type headerHit struct {
 	start, width int
+	kind         hitKind
 	lang         i18n.Lang
 	isKey        bool
+	link         string
 }
 
 // Model 是主屏幕。
@@ -395,6 +404,18 @@ func (m *Model) activateHit(r hitRegion) (ui.Screen, tea.Cmd) {
 
 	case hitBinding:
 		return m.handleKey(keyMsgFor(r.click))
+
+	case hitLink:
+		if r.link == "" {
+			return m, nil
+		}
+		url := r.link
+		return m, func() tea.Msg {
+			if err := platform.OpenURL(url); err != nil {
+				slog.Warn("打开链接失败", "url", url, "err", err)
+			}
+			return nil
+		}
 	}
 	return m, nil
 }
@@ -725,9 +746,9 @@ func (m *Model) View() string {
 	}
 
 	icon := ascii.Spark(m.tick)
-	langText, langHits := m.langSwitcher()
+	rightText, headerHits := m.headerRight()
 	rule := ascii.Rule(width, m.tick)
-	header := components.Header(icon, m.txt.AppTitle, langText, width, rule)
+	header := components.Header(icon, m.txt.AppTitle, rightText, width, rule)
 
 	right := m.footerRight()
 	bindings := m.bindings()
@@ -748,7 +769,7 @@ func (m *Model) View() string {
 	var body string
 	switch {
 	case m.showHelp:
-		body = components.Box{Title: m.txt.TaskIdle, Width: width, Height: bodyHeight}.
+		body = components.Box{Title: m.txt.TaskHelp, Width: width, Height: bodyHeight}.
 			Render(strings.Join(m.helpLines(), "\n"))
 	case detailW > 0:
 		body = lipgloss.JoinHorizontal(lipgloss.Top,
@@ -769,8 +790,8 @@ func (m *Model) View() string {
 		listW:      listW,
 		bodyHeight: bodyHeight,
 		iconW:      components.Width(icon),
-		langW:      components.Width(langText),
-		langHits:   langHits,
+		headW:      components.Width(rightText),
+		headHits:   headerHits,
 		spans:      spans,
 		bindings:   bindings,
 	})
@@ -788,8 +809,8 @@ type hitContext struct {
 	width, height int
 	listW         int
 	bodyHeight    int
-	iconW, langW  int
-	langHits      []langHit
+	iconW, headW  int
+	headHits      []headerHit
 	spans         []components.Span
 	bindings      []components.Binding
 }
@@ -804,14 +825,14 @@ const (
 func (m *Model) rebuildHits(ctx hitContext) {
 	m.hits = m.hits[:0]
 
-	// 右上角语言徽章（第 0 行，右对齐）。标题太挤时 Header 会隐藏右侧，这里同步跳过。
+	// 右上角徽章（第 0 行，右对齐）。标题太挤时 Header 会隐藏右侧，这里同步跳过。
 	if leftW := ctx.iconW + 1 + components.Width(m.txt.AppTitle); ctx.width-leftW-1 >= 8 &&
-		ctx.langW <= ctx.width-leftW-1 {
-		start := ctx.width - ctx.langW
-		for _, h := range ctx.langHits {
+		ctx.headW <= ctx.width-leftW-1 {
+		start := ctx.width - ctx.headW
+		for _, h := range ctx.headHits {
 			m.hits = append(m.hits, hitRegion{
-				kind: hitLang, x: start + h.start, y: 0, w: h.width, h: 1,
-				lang: h.lang, next: h.isKey,
+				kind: h.kind, x: start + h.start, y: 0, w: h.width, h: 1,
+				lang: h.lang, next: h.isKey, link: h.link,
 			})
 		}
 	}
@@ -874,40 +895,44 @@ func (m *Model) taskTitle() string {
 // 已选数量与体积由右侧任务面板承担，不必在底部重复。
 func (m *Model) footerRight() string { return version.String() }
 
-// langSwitcher 渲染右上角的语言切换提示，形如：L 简体中文 | English
+// headerRight 渲染右上角内容：GitHub 入口 + 语言切换提示。
+// 形如：GitHub   L 简体中文 | English
 //
-// 采用中性灰的「小徽章」样式：L 键提示与当前语言都带底色（当前语言底色略亮），
-// 未选中的语言不带底色，与底部按键提示的观感一致但整体是中性色。
-// 同时返回各枚徽章的位置，供鼠标点击命中。
-func (m *Model) langSwitcher() (string, []langHit) {
+// 语言部分采用中性灰的「小徽章」样式：L 键提示与当前语言都带底色（当前语言底色略亮），
+// 未选中的语言不带底色。同时返回各枚徽章的位置，供鼠标点击命中。
+func (m *Model) headerRight() (string, []headerHit) {
 	st := theme.S()
-	hits := make([]langHit, 0, len(i18n.Order)+1)
+	hits := make([]headerHit, 0, len(i18n.Order)+2)
 
 	var sb strings.Builder
 	col := 0
-	write := func(s string, w int) {
+	write := func(s string) int {
+		w := components.Width(s)
 		sb.WriteString(s)
 		col += w
+		return w
 	}
 
+	// GitHub 入口：与未选中的语言同色，带下划线暗示可点击。
+	gh := st.ChipOff.Underline(true).Render(m.txt.LinkGitHub)
+	hits = append(hits, headerHit{start: col, width: components.Width(gh), kind: hitLink, link: githubURL})
+	write(gh + "   ")
+
 	key := st.Chip.Render(" L ")
-	keyW := components.Width(key)
-	hits = append(hits, langHit{start: col, width: keyW, isKey: true})
-	write(key, keyW)
+	hits = append(hits, headerHit{start: col, width: components.Width(key), kind: hitLang, isKey: true})
+	write(key)
 
 	for i, l := range i18n.Order {
 		if i > 0 {
-			sep := st.ChipOff.Render("|")
-			write(sep, components.Width(sep))
+			write(st.ChipOff.Render("|"))
 		}
 		style := st.ChipOff
 		if l == m.lang {
 			style = st.ChipOn
 		}
 		chip := style.Render(" " + l.Label() + " ")
-		chipW := components.Width(chip)
-		hits = append(hits, langHit{start: col, width: chipW, lang: l})
-		write(chip, chipW)
+		hits = append(hits, headerHit{start: col, width: components.Width(chip), kind: hitLang, lang: l})
+		write(chip)
 	}
 	return sb.String(), hits
 }
@@ -940,12 +965,6 @@ func (m *Model) bindings() []components.Binding {
 	case m.phase == phaseDelete:
 		// 卸载中不接受操作，ctrl+c 也不适合用鼠标模拟。
 		return []components.Binding{{Keys: []string{"ctrl+c"}, Desc: m.txt.KeyAbort}}
-	case m.phase == phaseDone:
-		// 卸载已完成，列表可能已空，只留仍然有意义的两个键。
-		return []components.Binding{
-			{Keys: []string{"r"}, Desc: m.txt.KeyRescan, Click: "r"},
-			{Keys: []string{"q"}, Desc: m.txt.KeyQuit, Click: "q"},
-		}
 	}
 
 	// 按重要程度排列，放不下时从末尾开始舍弃。
@@ -1270,11 +1289,10 @@ func (m *Model) taskLines(inner, rows int) []string {
 func (m *Model) helpLines() []string {
 	st := theme.S()
 	entries := m.txt.HelpEntries
-	lines := make([]string, 0, len(entries)+4)
-	lines = append(lines, st.Subtle.Render(m.txt.HelpCreatedNote))
-	lines = append(lines, "")
+	lines := make([]string, 0, len(entries)+3)
 	for _, e := range entries {
-		lines = append(lines, "  "+st.Key.Render(" "+e[0]+" ")+"  "+st.KeyDesc.Render(e[1]))
+		// 按键用普通白字，不加底色：帮助页是逐条阅读的，块状高亮只会显得吵。
+		lines = append(lines, "  "+st.Base.Render(components.Pad(e[0], 14))+"  "+st.KeyDesc.Render(e[1]))
 	}
 	lines = append(lines, "")
 	lines = append(lines, st.Faint.Render("  "+m.txt.HelpCancelNote))
