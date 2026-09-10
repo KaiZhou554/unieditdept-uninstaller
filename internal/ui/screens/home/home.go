@@ -44,10 +44,11 @@ const confirmKeys = "dDyY"
 
 // taskItem 是卸载任务中的一个目录。
 type taskItem struct {
-	name string
-	path string
-	size int64
-	err  error
+	name     string
+	path     string
+	size     int64
+	err      error
+	external bool // 非 UniEditDept 的软件，面板里以白色区分
 }
 
 // deleteState 保存卸载任务的进度。
@@ -109,6 +110,10 @@ type Model struct {
 	cursor int
 	top    int
 
+	// noticeAt 是 view 中第一个非 UniEditDept 软件的位置（-1 表示没有）。
+	// 它在渲染时决定「其它软件」提示区插在哪里。
+	noticeAt int
+
 	sortMode core.SortMode
 	autoSort bool // 统计完成后是否自动按占用排序
 
@@ -165,10 +170,22 @@ func New(cfg config.Config, width, height int) *Model {
 		sortMode: core.SortBySize,
 		autoSort: true,
 		phase:    phaseScan,
+		noticeAt: -1,
 		w:        width,
 		h:        height,
 	}
 }
+
+// softwareKey 是索引与查重用的键。外部软件加前缀，
+// 免得与同名的 UniEditDept 软件互相覆盖（两者来源完全不同）。
+func softwareKey(name string, external bool) string {
+	if external {
+		return "ext\x00" + name
+	}
+	return name
+}
+
+func keyOf(sw core.Software) string { return softwareKey(sw.Name, sw.External) }
 
 // setLang 切换界面语言。
 func (m *Model) setLang(l i18n.Lang) {
@@ -320,7 +337,7 @@ func (m *Model) handleEvent(ev core.Event) (ui.Screen, tea.Cmd) {
 
 // applyMeasured 把一个目录的统计结果回填到列表中。
 func (m *Model) applyMeasured(ev core.SoftwareMeasured) {
-	i, ok := m.index[ev.Name]
+	i, ok := m.index[softwareKey(ev.Name, ev.External)]
 	if !ok {
 		return
 	}
@@ -340,12 +357,12 @@ func (m *Model) applyCompleted(ev core.ScanCompleted) {
 	selected := make(map[string]bool, len(m.items))
 	for _, it := range m.items {
 		if it.Selected {
-			selected[it.Name] = true
+			selected[keyOf(it)] = true
 		}
 	}
 	items := ev.Items
 	for i := range items {
-		if selected[items[i].Name] {
+		if selected[keyOf(items[i])] {
 			items[i].Selected = true
 		}
 	}
@@ -398,7 +415,8 @@ func (m *Model) activateHit(r hitRegion) (ui.Screen, tea.Cmd) {
 
 	case hitRow:
 		// 单击软件项：光标移过去并切换选中状态。
-		m.cursor = m.top + r.row
+		// row 直接记的就是 view 索引（渲染行与数据行之间有提示区，不能直接换算）。
+		m.cursor = r.row
 		m.clamp()
 		m.toggle()
 		return m, nil
@@ -603,7 +621,9 @@ func (m *Model) startDelete() (ui.Screen, tea.Cmd) {
 			continue
 		}
 		for _, in := range sw.Installs {
-			tasks = append(tasks, taskItem{name: sw.Name, path: in.Path, size: in.Size})
+			tasks = append(tasks, taskItem{
+				name: sw.Name, path: in.Path, size: in.Size, external: sw.External,
+			})
 		}
 	}
 	if len(tasks) == 0 {
@@ -683,8 +703,9 @@ func (m *Model) clamp() {
 	if m.cursor < m.top {
 		m.top = m.cursor
 	}
-	if m.cursor >= m.top+rows {
-		m.top = m.cursor - rows + 1
+	// 向下滚动：按渲染行判断，提示区占掉的行也算在内。
+	for m.top < m.cursor && m.lineIndex(m.cursor)-m.lineIndex(m.top) >= rows {
+		m.top++
 	}
 	if m.top > len(m.view)-rows {
 		m.top = len(m.view) - rows
@@ -700,8 +721,9 @@ func (m *Model) toggle() {
 	}
 	idx := m.view[m.cursor]
 	next := !m.items[idx].Selected
+	key := keyOf(m.items[idx])
 	for i := range m.items {
-		if m.items[i].Name == m.items[idx].Name {
+		if keyOf(m.items[i]) == key {
 			m.items[i].Selected = next
 		}
 	}
@@ -737,12 +759,18 @@ func (m *Model) rebuild() {
 
 	m.view = m.view[:0]
 	m.index = make(map[string]int, len(m.items))
+	m.noticeAt = -1
 	q := strings.ToLower(strings.TrimSpace(m.filter))
 	for i := range m.items {
-		m.index[m.items[i].Name] = i
-		if q == "" || strings.Contains(strings.ToLower(m.items[i].Name), q) {
-			m.view = append(m.view, i)
+		m.index[keyOf(m.items[i])] = i
+		if q != "" && !strings.Contains(strings.ToLower(m.items[i].Name), q) {
+			continue
 		}
+		// 第一个非 UniEditDept 软件之前要插一段提示，记下它的位置。
+		if m.items[i].External && m.noticeAt < 0 {
+			m.noticeAt = len(m.view)
+		}
+		m.view = append(m.view, i)
 	}
 	m.clamp()
 }
@@ -754,6 +782,43 @@ func (m *Model) viewportRows() int {
 		rows = 3
 	}
 	return rows
+}
+
+/* ------------------------------ 列表分区映射 ------------------------------ */
+
+// noticeLines 是「其它软件」提示区占用的行数：空行 + 提示 + 空行。
+const noticeLines = 3
+
+// lineIndex 返回 view 中第 v 个条目显示在第几渲染行。
+// 提示区插在外部软件之前，因此它后面的条目整体下移。
+func (m *Model) lineIndex(v int) int {
+	if m.noticeAt < 0 || v <= m.noticeAt {
+		return v
+	}
+	return v + noticeLines
+}
+
+// lineCount 返回列表占用的渲染行总数（含提示区）。
+func (m *Model) lineCount() int {
+	if m.noticeAt < 0 {
+		return len(m.view)
+	}
+	return len(m.view) + noticeLines
+}
+
+// dataAt 把渲染行号还原成 view 索引；返回 -1 表示该行落在提示区里。
+func (m *Model) dataAt(line int) int {
+	if m.noticeAt < 0 {
+		return line
+	}
+	switch {
+	case line < m.noticeAt:
+		return line
+	case line < m.noticeAt+noticeLines:
+		return -1
+	default:
+		return line - noticeLines
+	}
 }
 
 /* ----------------------------------- 渲染 ----------------------------------- */
@@ -900,16 +965,23 @@ func (m *Model) rebuildHits(ctx hitContext) {
 		}
 	}
 
-	// 软件列表的每一行。
+	// 软件列表的每一行（row 记的是 view 索引，提示区不可点击）。
 	if !m.showHelp && len(m.view) > 0 && ctx.bodyHeight > listHead {
 		rows := ctx.bodyHeight - listHead
+		total := m.lineCount()
+		start := m.lineIndex(m.top)
 		for n := 0; n < rows; n++ {
-			if m.top+n >= len(m.view) {
+			line := start + n
+			if line >= total {
 				break
+			}
+			v := m.dataAt(line)
+			if v < 0 {
+				continue
 			}
 			m.hits = append(m.hits, hitRegion{
 				kind: hitRow, x: 0, y: bodyTop + listHead + n,
-				w: ctx.listW, h: 1, row: n,
+				w: ctx.listW, h: 1, row: v,
 			})
 		}
 	}
@@ -1096,15 +1168,33 @@ func (m *Model) renderList(width, height int) string {
 
 	lines := make([]string, 0, rows)
 	lines = append(lines, m.renderHeader(innerW))
+
+	total := m.lineCount()
+	start := m.lineIndex(m.top)
 	for n := 0; n < rows-1; n++ {
-		idx := m.top + n
-		if idx >= len(m.view) {
+		line := start + n
+		if line < 0 || line >= total {
 			lines = append(lines, "")
 			continue
 		}
-		lines = append(lines, m.renderRow(m.items[m.view[idx]], idx == m.cursor, innerW))
+		v := m.dataAt(line)
+		if v < 0 {
+			lines = append(lines, m.noticeLine(innerW, line-m.noticeAt))
+			continue
+		}
+		lines = append(lines, m.renderRow(m.items[m.view[v]], v == m.cursor, innerW))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// noticeLine 渲染「其它软件」提示区中的一行；只有中间那行有文字，
+// 前后各留一个空行，把两个分区隔开。
+func (m *Model) noticeLine(width, offset int) string {
+	if offset != 1 {
+		return ""
+	}
+	st := theme.S()
+	return " " + st.Cool.Render(components.Truncate(m.txt.ExternalNotice, width-1, "…"))
 }
 
 // renderHeader 渲染列表的列头。
@@ -1155,10 +1245,25 @@ func (m *Model) renderRow(sw core.Software, active bool, width int) string {
 	plain := components.Fit(components.StripANSI(sb.String()), width)
 	switch {
 	case m.phase == phaseConfirm && sw.Selected:
+		if sw.External {
+			// 外部条目同样两档交替，但走白色系，不混进粉红光带。
+			style := st.ExternalFlash
+			if (m.tick/4)%2 == 0 {
+				style = st.ExternalSel
+			}
+			return style.Render(plain)
+		}
 		// 光带缓缓扫过，表示「这一条正等着你确认」。
 		return ascii.ScanHighlight(plain, m.tick)
+	case sw.External && !m.measured(sw):
+		// 非本程序管理的软件：统计中时整行用蓝紫色扫描动画。
+		return ascii.CoolGradient(plain, m.tick)
+	case active && sw.External:
+		return st.ExternalSel.Render(plain)
 	case active:
 		return st.RowSel.Render(plain)
+	case sw.External:
+		return st.External.Render(plain)
 	default:
 		return sb.String()
 	}
@@ -1347,12 +1452,21 @@ func (m *Model) taskLines(inner, rows int) []string {
 		}
 		body := components.Pad(components.Truncate(it.name, nameW, "…"), nameW) + " " +
 			components.PadLeft(core.HumanSize(it.size), 8)
-		// 正在处理的那条用擦除动画表现。
+		// 正在处理的那条用擦除动画表现（外部软件用蓝紫，与列表一致）。
 		if idx == m.del.done && m.cfg.Animate {
+			if it.external {
+				lines = append(lines, " "+icon+" "+ascii.CoolGradient(strings.Repeat("░", len([]rune(body))), m.tick))
+				continue
+			}
 			lines = append(lines, " "+icon+" "+ascii.Dissolve(body, float64(m.tick%24)/24))
 			continue
 		}
-		lines = append(lines, " "+icon+" "+st.Base.Render(body))
+		// 非本程序管理的软件在任务列表里也保持白色，便于一眼认出。
+		style := st.Base
+		if it.external {
+			style = st.External
+		}
+		lines = append(lines, " "+icon+" "+style.Render(body))
 	}
 	return lines
 }

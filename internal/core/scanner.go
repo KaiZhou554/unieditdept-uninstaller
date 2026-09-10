@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,6 +35,8 @@ type SoftwareMeasured struct {
 	Install Install
 	Done    int
 	Total   int
+	// External 与 Software.External 对应，用于区分同名的两类软件。
+	External bool
 }
 
 func (SoftwareMeasured) event() {}
@@ -84,8 +87,72 @@ func (s *Scanner) Stream(ctx context.Context) <-chan Event {
 }
 
 type scanJob struct {
-	name string
-	inst Install
+	name     string
+	inst     Install
+	external bool
+}
+
+// jobKey 是把目录聚合为软件时用的键。
+// 外部软件加前缀，避免与同名的 UniEditDept 软件合并成一个（两者来源完全不同）。
+func jobKey(name string, external bool) string {
+	if external {
+		return "ext\x00" + name
+	}
+	return name
+}
+
+// externalSuffix 与 externalMarker 描述「其它软件留下的数据目录」的识别规则：
+// 位于 %AppData% 根目录下、名字以 .exe 结尾的文件夹（是文件夹，不是文件），
+// 且内部含有一个 EBWebView 子目录。
+const (
+	externalSuffix = ".exe"
+	externalMarker = "EBWebView"
+)
+
+// scanExternals 枚举 %AppData% 根目录下符合识别规则的文件夹。
+//
+// 这些目录不属于本程序管理的命名空间，只是顺带发现、顺带清理，
+// 因此它们各自的 Software.External 为 true，界面上会单独分区。
+func (s *Scanner) scanExternals() []scanJob {
+	dir := os.Getenv("APPDATA")
+	if dir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		slog.Warn("读取 AppData 根目录失败", "dir", dir, "err", err)
+		return nil
+	}
+	var jobs []scanJob
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue // 带 .exe 后缀的普通文件不是目标
+		}
+		name := e.Name()
+		if len(name) <= len(externalSuffix) || !strings.EqualFold(name[len(name)-len(externalSuffix):], externalSuffix) {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if !hasChildDir(path, externalMarker) {
+			continue
+		}
+		inst := Install{Root: RootAppData, Path: path, Created: platform.CreationTime(path)}
+		if info, err := e.Info(); err == nil {
+			inst.ModTime = info.ModTime()
+		}
+		jobs = append(jobs, scanJob{
+			name:     name[:len(name)-len(externalSuffix)], // 展示时去掉 .exe
+			inst:     inst,
+			external: true,
+		})
+	}
+	return jobs
+}
+
+// hasChildDir 判断目录下是否存在指定名字的子目录。
+func hasChildDir(dir, name string) bool {
+	info, err := os.Stat(filepath.Join(dir, name))
+	return err == nil && info.IsDir()
 }
 
 // Run 执行扫描，向 out 发送事件，并返回最终结果。
@@ -115,16 +182,18 @@ func (s *Scanner) Run(ctx context.Context, out chan<- Event) []Software {
 			jobs = append(jobs, scanJob{name: e.Name(), inst: inst})
 		}
 	}
+	jobs = append(jobs, s.scanExternals()...)
 
 	// 先把枚举结果（不含占用）建好并立刻推送，界面可以马上列出软件。
 	order := make([]string, 0, len(jobs))
 	groups := make(map[string]*Software, len(jobs))
 	for i := range jobs {
-		sw := groups[jobs[i].name]
+		key := jobKey(jobs[i].name, jobs[i].external)
+		sw := groups[key]
 		if sw == nil {
-			sw = &Software{Name: jobs[i].name}
-			groups[jobs[i].name] = sw
-			order = append(order, jobs[i].name)
+			sw = &Software{Name: jobs[i].name, External: jobs[i].external}
+			groups[key] = sw
+			order = append(order, key)
 		}
 		sw.Installs = append(sw.Installs, jobs[i].inst)
 	}
@@ -135,8 +204,8 @@ func (s *Scanner) Run(ctx context.Context, out chan<- Event) []Software {
 	}
 
 	initial := make([]Software, 0, len(order))
-	for _, name := range order {
-		initial = append(initial, groups[name].Clone())
+	for _, key := range order {
+		initial = append(initial, groups[key].Clone())
 	}
 	Sort(initial, SortByName)
 
@@ -181,7 +250,7 @@ jobs:
 			}
 
 			mu.Lock()
-			if sw := groups[job.name]; sw != nil {
+			if sw := groups[jobKey(job.name, job.external)]; sw != nil {
 				for k := range sw.Installs {
 					if sw.Installs[k].Root == inst.Root {
 						sw.Installs[k] = inst
@@ -192,14 +261,16 @@ jobs:
 			mu.Unlock()
 
 			done := int(atomic.AddInt64(&doneCount, 1))
-			emit(ctx, out, SoftwareMeasured{Name: job.name, Install: inst, Done: done, Total: total})
+			emit(ctx, out, SoftwareMeasured{
+				Name: job.name, External: job.external, Install: inst, Done: done, Total: total,
+			})
 		}()
 	}
 	wg.Wait()
 
 	items := make([]Software, 0, len(groups))
-	for _, sw := range groups {
-		items = append(items, sw.Clone())
+	for _, key := range order {
+		items = append(items, groups[key].Clone())
 	}
 	Sort(items, SortBySize)
 	emit(ctx, out, ScanCompleted{Items: items, Roots: s.Roots, Elapsed: time.Since(start)})

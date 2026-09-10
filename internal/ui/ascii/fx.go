@@ -156,10 +156,26 @@ var palette = sync.OnceValue(func() []lipgloss.Style {
 	return theme.RampStyles(colors)
 })
 
+// coolPalette 是外部分区用的蓝紫色带。
+var coolPalette = sync.OnceValue(func() []lipgloss.Style {
+	colors := theme.Ramp(24, theme.CoolDark, theme.Cool, theme.CoolPale)
+	return theme.RampStyles(colors)
+})
+
 // Gradient 为字符串施加横向渐变着色，shift 用于产生流动效果。
 // 输入必须是纯文本（不含 ANSI 序列）。
 func Gradient(s string, shift int) string {
-	pal := palette()
+	return shade(s, shift, palette())
+}
+
+// CoolGradient 与 Gradient 相同，但使用蓝紫色带。
+// 它用来表示「正在统计的不是本程序管理的软件」，与粉红主色一眼区分。
+func CoolGradient(s string, shift int) string {
+	return shade(s, shift, coolPalette())
+}
+
+// shade 用给定的色带给字符串做横向渐变着色。
+func shade(s string, shift int, pal []lipgloss.Style) string {
 	if len(pal) == 0 {
 		return s
 	}

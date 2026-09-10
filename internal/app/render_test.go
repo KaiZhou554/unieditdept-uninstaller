@@ -357,6 +357,37 @@ func TestLanguageSwitch(t *testing.T) {
 	}
 }
 
+// TestExternalAppRemoval 端到端：非 UniEditDept 的软件也能整目录卸载。
+func TestExternalAppRemoval(t *testing.T) {
+	setupData(t)
+	ext := filepath.Join(os.Getenv("APPDATA"), "OtherTool.exe")
+	if err := os.MkdirAll(filepath.Join(ext, "EBWebView"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ext, "EBWebView", "blob.bin"), make([]byte, 4096), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	screen := newScannedHome(t)
+	view := plainView(screen, 100, 30)
+	if !strings.Contains(view, "OtherTool") {
+		t.Fatalf("应识别并列出外部软件：\n%s", view)
+	}
+	if strings.Contains(view, "OtherTool.exe") {
+		t.Errorf("列出时不应带 .exe 后缀：\n%s", view)
+	}
+
+	// 全选（把外部软件也一起选上）→ 待确认 → 确认 → 跑完整个事件流。
+	screen, _ = press(screen, "a")
+	screen, _ = press(screen, "d")
+	screen, cmd := press(screen, "d")
+	_ = driveUntilIdle(t, screen, cmd, 5000)
+
+	if _, err := os.Stat(ext); !os.IsNotExist(err) {
+		t.Error("外部软件的文件夹应被整体删除")
+	}
+}
+
 // TestEnglishSingularCounts 校验英文计数文案在数量为 1 时不会退化成 "1 apps"。
 //
 // 英文没有能同时读通 0/1/N 的复数形式，所以计数名词一律写成 "app(s)"；
@@ -563,6 +594,15 @@ func TestDumpHome(t *testing.T) {
 		t.Skip("未设置 UED_DUMP，跳过导出")
 	}
 	setupData(t)
+	// 造一个「其它软件」的数据目录，便于检查分区、配色与提示换行。
+	ext := filepath.Join(os.Getenv("APPDATA"), "SomeOtherApp.exe")
+	if err := os.MkdirAll(filepath.Join(ext, "EBWebView"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ext, "EBWebView", "blob.bin"), make([]byte, 3<<20), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	screen := ui.Screen(home.New(testConfig(), 0, 0))
 
 	var sb strings.Builder

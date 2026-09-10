@@ -98,6 +98,8 @@ type Strings struct {
 	DryRunning     string
 	Freed          string // %s
 	RemovedDirs    string // %s
+	// ExternalNotice 是列表里「其它软件」分区的说明，位于该分区条目之上。
+	ExternalNotice string
 	Elapsed        string // %s
 	PrunedDirs     string // %s
 	FailedCount    string // %s

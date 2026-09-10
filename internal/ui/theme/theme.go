@@ -43,6 +43,16 @@ var (
 	Warn   = lipgloss.Color("#ffc46b")
 	Danger = lipgloss.Color("#ff5d73")
 
+	// 非 UniEditDept 软件（其它程序留下的数据）用的冷色与白色：
+	// 这套配色刻意偏离粉红主色，让人一眼看出「这不是本程序管理的对象」。
+	Cool     = lipgloss.Color("#7c8cf8")
+	CoolDark = lipgloss.Color("#2b2358")
+	CoolPale = lipgloss.Color("#b3a4f5")
+
+	ExternalWhite = lipgloss.Color("#ffffff")
+	ExternalInk   = lipgloss.Color("#1a1420")
+	ExternalDim   = lipgloss.Color("#c9c4d8")
+
 	// 二次确认时的光带配色：暗端压得足够低，光带扫过时才不刺眼。
 	FlashOn  = lipgloss.Color("#ff5d73")
 	FlashOff = lipgloss.Color("#5e1f38")
@@ -75,6 +85,13 @@ type Styles struct {
 	Chip    lipgloss.Style
 	ChipOn  lipgloss.Style
 	ChipOff lipgloss.Style
+
+	// Cool 是外部分区提示文字；External 系列用于非 UniEditDept 的条目：
+	// 常态纯白，光标行反白（白底深字），待确认时在两档白之间交替。
+	Cool          lipgloss.Style
+	External      lipgloss.Style
+	ExternalSel   lipgloss.Style
+	ExternalFlash lipgloss.Style
 }
 
 var styles = sync.OnceValue(func() *Styles {
@@ -108,6 +125,11 @@ var styles = sync.OnceValue(func() *Styles {
 		Chip:    lipgloss.NewStyle().Foreground(ChipInk).Background(ChipBg).Bold(true),
 		ChipOn:  lipgloss.NewStyle().Foreground(ChipOnInk).Background(ChipOnBg).Bold(true),
 		ChipOff: lipgloss.NewStyle().Foreground(ChipOffInk),
+
+		Cool:          lipgloss.NewStyle().Foreground(Cool).Bold(true),
+		External:      lipgloss.NewStyle().Foreground(ExternalWhite).Bold(true),
+		ExternalSel:   lipgloss.NewStyle().Foreground(ExternalInk).Background(ExternalWhite).Bold(true),
+		ExternalFlash: lipgloss.NewStyle().Foreground(ExternalInk).Background(ExternalDim).Bold(true),
 	}
 })
 

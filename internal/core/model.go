@@ -22,6 +22,11 @@ type Software struct {
 	Name     string
 	Installs []Install
 	Selected bool
+
+	// External 表示这不是 UniEditDept 开发的软件，而是本程序顺带识别到的
+	// 其它程序留下的数据目录。它们在列表里单独分区显示，并且不会被
+	// 与 UniEditDept 的软件混在一起排序。
+	External bool
 }
 
 // TotalSize 返回该软件在全部根位置下的占用总和。
@@ -119,30 +124,35 @@ func (m SortMode) Next() SortMode {
 }
 
 // Sort 原地排序软件列表。
+//
+// 非 UniEditDept 的软件始终排在后面，不与本程序管理的软件混排；
+// 两个分组内部各自按 mode 排序（因此这里用 SliceStable，分组顺序是硬约束）。
 func Sort(items []Software, mode SortMode) {
-	switch mode {
-	case SortByName:
-		sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
-	case SortByCreated:
-		sort.Slice(items, func(i, j int) bool {
-			ci, cj := items[i].Created(), items[j].Created()
-			if ci.IsZero() != cj.IsZero() {
-				return cj.IsZero() // 未知日期排在最后
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := items[i], items[j]
+		if a.External != b.External {
+			return !a.External
+		}
+		switch mode {
+		case SortByName:
+			return a.Name < b.Name
+		case SortByCreated:
+			ca, cb := a.Created(), b.Created()
+			if ca.IsZero() != cb.IsZero() {
+				return cb.IsZero() // 未知日期排在最后
 			}
-			if !ci.Equal(cj) {
-				return ci.After(cj)
+			if !ca.Equal(cb) {
+				return ca.After(cb)
 			}
-			return items[i].Name < items[j].Name
-		})
-	default:
-		sort.Slice(items, func(i, j int) bool {
-			si, sj := items[i].TotalSize(), items[j].TotalSize()
-			if si != sj {
-				return si > sj
+			return a.Name < b.Name
+		default:
+			sa, sb := a.TotalSize(), b.TotalSize()
+			if sa != sb {
+				return sa > sb
 			}
-			return items[i].Name < items[j].Name
-		})
-	}
+			return a.Name < b.Name
+		}
+	})
 }
 
 // TotalSize 汇总所有软件的占用。

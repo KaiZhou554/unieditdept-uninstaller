@@ -1,0 +1,16 @@
+feat: 顺带识别并清理其它软件在 AppData 留下的数据目录
+
+识别规则：%AppData% 根目录下名字以 .exe 结尾的文件夹（是文件夹，不是文件），
+且内含 EBWebView 子目录。这类目录多为 WebView2 应用自建，与本程序无关。
+
+领域层新增 Software.External：外部目录走同一套异步统计（SoftwareMeasured
+带 External 标记，用于区分同名条目），排序时硬性排在 UniEditDept 软件之后。
+
+列表在两类软件之间插入提示区「这些软件并非 UniEditDept 开发，请谨慎清理。」，
+条目名去掉 .exe 后缀。渲染行与数据行之间因此隔了提示区，光标、滚动与鼠标命中
+都按 lineIndex/dataAt 换算；hitRow 改为直接记录 view 索引。
+
+配色刻意偏离主色：外部条目高亮为白色、光标行反白，统计占用时整行走蓝紫色
+扫描动画（新增 ascii.CoolGradient）；卸载任务面板中的外部条目同样用白色。
+
+删除的是整个文件夹 —— Remover 无需改动，它本来就按 Install.Path 整目录删除。

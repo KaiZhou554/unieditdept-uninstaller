@@ -45,6 +45,26 @@ func setupData(t *testing.T) {
 	}
 }
 
+// addExternalApp 在 %AppData% 根目录下造一个「其它软件」的数据文件夹，
+// 返回文件夹路径。名字会自动补上 .exe 后缀（展示时应被去掉）。
+func addExternalApp(t *testing.T, name string, size int) string {
+	t.Helper()
+	dir := filepath.Join(os.Getenv("APPDATA"), name+".exe")
+	if err := os.MkdirAll(filepath.Join(dir, "EBWebView"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "EBWebView", "blob.bin"), make([]byte, size), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// pressKey 模拟按下特殊键（方向键等）。
+func pressKey(m *Model, k tea.KeyType) *Model {
+	updated, _ := m.Update(tea.KeyMsg{Type: k})
+	return updated.(*Model)
+}
+
 // ready 创建主屏幕并驱动到扫描完成，尺寸固定为 100x30。
 func ready(t *testing.T) *Model {
 	t.Helper()
@@ -262,6 +282,89 @@ func findTopmost(m *Model, pred func(hitRegion) bool) (hitRegion, bool) {
 		}
 	}
 	return best, found
+}
+
+// TestExternalSection 校验「其它软件」分区：提示夹在两类软件之间，条目去掉 .exe 后缀。
+func TestExternalSection(t *testing.T) {
+	setupData(t)
+	addExternalApp(t, "OtherTool", 4096)
+	m := ready(t)
+
+	view := components.StripANSI(m.View())
+	appAt := strings.Index(view, "NovaEditor")
+	noticeAt := strings.Index(view, m.txt.ExternalNotice)
+	extAt := strings.Index(view, "OtherTool")
+	if appAt < 0 || noticeAt < 0 || extAt < 0 {
+		t.Fatalf("三部分都应出现：app=%d notice=%d external=%d\n%s", appAt, noticeAt, extAt, view)
+	}
+	if !(appAt < noticeAt && noticeAt < extAt) {
+		t.Errorf("顺序应为 软件 < 提示 < 其它软件，实际 %d / %d / %d", appAt, noticeAt, extAt)
+	}
+	if strings.Contains(view, "OtherTool.exe") {
+		t.Errorf("条目名不应带 .exe 后缀：\n%s", view)
+	}
+	if !strings.Contains(view, "4.00 KB") {
+		t.Errorf("外部软件的占用应被异步统计出来：\n%s", view)
+	}
+
+	// 非 UniEditDept 的条目高亮为白色（主色是粉红，白色在这里是唯一的）。
+	if !strings.Contains(m.View(), "38;2;255;255;255") {
+		t.Error("外部条目应以白色显示")
+	}
+}
+
+// TestExternalRowHighlight 校验外部条目作为光标行时反白（白底深字）。
+func TestExternalRowHighlight(t *testing.T) {
+	setupData(t)
+	addExternalApp(t, "OtherTool", 4096)
+	m := ready(t)
+
+	for m.cursor < len(m.view)-1 {
+		m = pressKey(m, tea.KeyDown)
+	}
+	if idx := m.view[m.cursor]; !m.items[idx].External {
+		t.Fatalf("光标应停在最后一条外部软件上，实际 %q", m.items[idx].Name)
+	}
+	if !strings.Contains(m.View(), "48;2;255;255;255") {
+		t.Error("外部条目作为光标行时应使用白色背景")
+	}
+}
+
+// TestCursorAndClickReachExternalRows 校验光标与鼠标都能正确落到外部分区的条目上。
+func TestCursorAndClickReachExternalRows(t *testing.T) {
+	setupData(t)
+	addExternalApp(t, "OtherTool", 4096)
+	m := ready(t)
+
+	// 光标能一路走到外部分区（提示区占了几行，别把光标算错位）。
+	before := m.cursor
+	for m.cursor < len(m.view)-1 {
+		m = pressKey(m, tea.KeyDown)
+	}
+	if m.cursor <= before {
+		t.Fatal("方向键应能向下移动光标")
+	}
+	if idx := m.view[m.cursor]; !m.items[idx].External {
+		t.Fatalf("光标应到达外部软件，实际 %q", m.items[idx].Name)
+	}
+
+	// 点击外部分区的行，应恰好切换那一条。
+	hit, ok := findHit(m, hitRow, func(r hitRegion) bool {
+		return m.items[m.view[r.row]].External
+	})
+	if !ok {
+		t.Fatal("外部条目应可点击")
+	}
+	want := m.items[m.view[hit.row]].Name
+	m, _ = clickHit(t, m, hit)
+	if !m.items[m.view[hit.row]].Selected {
+		t.Errorf("单击外部条目 %q 应选中它", want)
+	}
+	for _, sw := range m.items {
+		if !sw.External && sw.Selected {
+			t.Errorf("内部软件 %q 不应被牵连选中", sw.Name)
+		}
+	}
 }
 
 // TestHelpPageSwallowsListKeys 校验帮助页只看不按：列表相关按键一律不生效。

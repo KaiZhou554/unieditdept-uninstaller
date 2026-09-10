@@ -3,6 +3,7 @@ package ascii
 import (
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -129,6 +130,72 @@ func TestScanHighlightEmpty(t *testing.T) {
 	if got := ScanHighlight("", 5); got != "" {
 		t.Errorf("空串应原样返回，实际 %q", got)
 	}
+}
+
+// TestCoolGradientUsesCoolPalette 校验外部分区用的渐变是蓝紫色，而不是主色粉红。
+func TestCoolGradientUsesCoolPalette(t *testing.T) {
+	const s = "OtherTool"
+	out := CoolGradient(s, 0)
+	if stripAllSGR(out) != s {
+		t.Errorf("不应改变文本内容，实际 %q", stripAllSGR(out))
+	}
+	if !strings.ContainsRune(out, 0x1b) {
+		t.Fatal("应产生 ANSI 着色，否则后续断言失去意义")
+	}
+	if !hasBlueDominant(out) {
+		t.Errorf("应使用蓝紫色带（蓝色分量高于红色），实际 %q", out)
+	}
+	// 主色 #ff6699 的红色分量远高于蓝色，不该出现在冷色带里。
+	if strings.Contains(out, "255;102;153") {
+		t.Error("蓝紫渐变里不应混入主色粉红")
+	}
+}
+
+// TestCoolGradientKeepsWidth 校验渐变只改颜色，不改显示宽度（排版依赖这一点）。
+func TestCoolGradientKeepsWidth(t *testing.T) {
+	for _, s := range []string{"", "pending", "OtherTool  4.00 KB  2026-09-10"} {
+		want := ansi.StringWidth(s)
+		for tick := 0; tick < 48; tick++ {
+			if w := ansi.StringWidth(CoolGradient(s, tick)); w != want {
+				t.Fatalf("tick=%d 时宽度由 %d 变为 %d", tick, want, w)
+			}
+		}
+	}
+}
+
+// TestCoolGradientMoves 校验蓝紫渐变会随时间流动。
+func TestCoolGradientMoves(t *testing.T) {
+	if CoolGradient("scanning slowly", 0) == CoolGradient("scanning slowly", 8) {
+		t.Error("渐变应随时间流动")
+	}
+}
+
+// hasBlueDominant 判断串里是否存在「蓝色分量高于红色分量」的 RGB 前景色。
+func hasBlueDominant(s string) bool {
+	const marker = "38;2;"
+	for i := 0; i+len(marker) <= len(s); i++ {
+		if s[i:i+len(marker)] != marker {
+			continue
+		}
+		parts := strings.SplitN(s[i+len(marker):], ";", 3)
+		if len(parts) < 3 {
+			continue
+		}
+		r, errR := strconv.Atoi(parts[0])
+		if errR != nil {
+			continue
+		}
+		// 第三个分量后面可能紧跟 'm' 或 ';'。
+		third := parts[2]
+		if j := strings.IndexAny(third, "m;"); j >= 0 {
+			third = third[:j]
+		}
+		b, errB := strconv.Atoi(third)
+		if errB == nil && b > r {
+			return true
+		}
+	}
+	return false
 }
 
 // stripAllSGR 移除完整的 SGR 序列；未闭合的 ESC 会被保留，便于断言发现。
