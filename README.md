@@ -1,164 +1,166 @@
+English | [简体中文](README_zh.md)
+
 # ued-uninstaller
 
-一款用 Go 编写的 TUI 卸载程序，用于清理 `unieditdept` 系列软件在三个位置留下的数据。
+A TUI uninstaller written in Go, for cleaning up the data left behind by `unieditdept` apps in three locations.
 
-它会扫描两类目标。
+It scans two kinds of targets.
 
-**一、UniEditDept 软件的数据**（主要目标）：
+**1. Data belonging to UniEditDept apps** (the main target):
 
-| 位置 | 环境变量 |
+| Location | Environment variable |
 | --- | --- |
 | Roaming | `%APPDATA%` |
 | Local | `%LOCALAPPDATA%` |
 | Temp | `%TEMP%` |
 
-每个位置下 `unieditdept/<名称>` 的子目录被视为一个软件的数据；三个位置中的**同名目录会合并为同一个软件**，占用相加，删除时一并清除。
+A subdirectory named `unieditdept/<name>` under each location counts as one app's data. **Directories sharing a name across the three locations are merged into a single app**: their sizes are summed and they are removed together.
 
-**二、其它软件留下的数据**（顺带发现，仅供参考）：
+**2. Data left behind by other apps** (found incidentally, for reference only):
 
-`%APPDATA%` **根目录**下、名字以 `.exe` 结尾的**文件夹**（是文件夹，不是文件），且其中含有一个 `EBWebView` 子目录。这类目录通常是别的 WebView2 应用自己创建的数据目录，与本程序无关。
+A **folder** under the **root** of `%APPDATA%` whose name ends in `.exe` (a folder, not a file) and which contains an `EBWebView` subdirectory. These are usually data directories created by other WebView2-based apps, and have nothing to do with this program.
 
-它们在列表里单独分区，上方有一条提示隔开：
+They get their own section in the list, separated by a notice:
 
-> 这些软件并非 UniEditDept 开发，请谨慎清理。
+> These apps are not made by UniEditDept — clean them with care.
 
-名称显示时会去掉 `.exe` 后缀，占用同样异步统计，选中后按 `D` 卸载 —— 删掉的是**整个文件夹**。
+The `.exe` suffix is stripped from the displayed name, their size is measured asynchronously like everything else, and pressing `D` removes them — the **entire folder** goes away.
 
-## 交互
+## Interaction
 
-整个程序只有一个界面：左侧软件列表，右侧任务面板。信息按「当前阶段真正有用的」来给，操作提示只保留在底部状态栏一处。
+The whole program is a single screen: the app list on the left, the task panel on the right. It surfaces only what is useful at the current stage, and action hints live in exactly one place — the status bar at the bottom.
 
-1. **进入即列出**：启动时只枚举目录名（几乎瞬时），列表立刻可用。列表带列头，每行显示：名称、占用、创建日期（三个位置中最早创建的目录）。占用与日期为固定宽度，只有名称列会伸缩；窗口变窄时先缩短日期，再不显示日期，不会把数字挤出屏幕。若发现了「其它软件」的数据目录，会在列表下方单起一个分区，用一条提示与 UniEditDept 的软件隔开。
-2. **占用异步统计**：统计在后台并发进行，每统计完一个目录就把结果回填到对应行；未统计完的行显示「计算中」。统计期间按名称排序，全部完成后自动按占用排序。右侧面板实时显示统计进度。
-3. **两段式卸载**：
-   - 选择软件后按 `D`，进入待确认状态；
-   - 此时底部按键指示由「卸载」变为「确认」，选中的条目与「确认」指示上会有一条高亮光带缓缓扫过（约每秒 14 列，刻意做得温和不刺眼），限时 6 秒；
-   - 再按 `D`（或 `Y`）才真正执行；**按其它任意键、或超时，都视为取消**；
-   - 取消后右侧面板会短暂提示「已取消卸载」，底部状态栏随即恢复按键说明。
-4. **右侧任务面板**：统计时显示统计进度，选中后显示待卸载摘要（软件数 / 预计释放），卸载时显示进度条、已释放空间与分项状态，结束后显示结果（删除目录数、释放空间、耗时、失败明细）。未选择软件时面板留白。
+1. **Listed on entry**: startup only enumerates directory names (near-instant), so the list is usable immediately. It has a header row; each entry shows name, size, and creation date (the earliest of the three locations). The size and date columns are fixed width — only the name column flexes. As the window narrows, the date is first shortened, then dropped, so numbers never get pushed off screen. If "other apps" data directories are found, they get their own section below the list, separated by a notice.
+2. **Asynchronous size measurement**: measurement runs concurrently in the background, and each directory's result is filled into its row as soon as it completes; rows still pending show "pending". The list sorts by name while measuring, then switches to size once finished. The right panel shows live progress.
+3. **Two-step removal**:
+   - Press `D` with apps selected to enter the confirm state;
+   - The bottom hint changes from "remove" to "confirm", and a highlight band sweeps slowly across the selected rows and the confirm hint (about 14 columns per second, deliberately gentle), for 6 seconds;
+   - Press `D` (or `Y`) again to actually run it; **any other key, or the timeout, cancels**;
+   - After cancelling, the right panel briefly shows "Cancelled" and the status bar returns to the normal hints.
+4. **Right-hand task panel**: shows measurement progress while scanning, a summary of the pending removal (app count / projected space freed) once something is selected, a progress bar with space freed and per-item status while removing, and a result (folders removed, space freed, elapsed time, failure details) when done. Left blank when nothing is selected.
 
-卸载完成后，成功删除的软件会从列表中移除，删除失败的项保留，可在关闭占用程序后重试。
+After a removal completes, successfully deleted apps disappear from the list while failures remain, so they can be retried once whatever was holding them is closed.
 
-视觉上：标题前是一枚缓慢呼吸的星（主色 `#ff6699`，每 4 秒一个明暗周期）；标题下的分隔线每 3 帧才推进一格，流光从容；进度条、擦除动画同样由该主色展开渐变。
+Visually: a slowly breathing star precedes the title (primary colour `#ff6699`, one brightness cycle every 4 seconds); the rule under the title advances only every 3 frames, so the shimmer stays unhurried; the progress bar and the dissolve animation are gradients built from that same primary colour.
 
-**非 UniEditDept 的条目刻意换了一套配色**：说明文字是深灰、条目是淡灰，比主色系低调一档（这块是顺带发现的信息，不该抢本程序管理对象的注意力）；光标行反白；确认卸载时扫过的光带是蓝紫色（深蓝 → 蓝 → 蓝紫），与 UniEditDept 条目的粉红光带一眼区分。光带亮端的感知亮度被刻意压得比粉红还低一点，冷色不至于更晃眼 —— 有测试守着这条约束。
+**Non-UniEditDept entries deliberately use a different palette**: the notice is dark grey and the entries are light grey, a notch quieter than the primary scheme (this is incidentally discovered information, and shouldn't compete with the apps this program manages); the cursor row is inverted; and the band that sweeps across them during confirm is blue-purple (deep blue → blue → blue-purple), instantly distinguishable from the pink band on UniEditDept entries. The bright end of that band is deliberately given lower perceived brightness than the pink one, so the cool colour doesn't end up harsher — a test guards that constraint.
 
-动画可用 `-no-anim` 整体关闭。
+Animations can be disabled entirely with `-no-anim`.
 
-## 快捷键
+## Keys
 
-| 按键 | 作用 |
+| Key | Action |
 | --- | --- |
-| `↑` `↓` / `k` `j` | 移动光标 |
-| `PgUp` `PgDn` / `Home` `End` | 翻页 / 跳到首尾 |
-| `Space` | 选择或取消选择 |
-| `A` | 全选 / 取消全选 |
-| `I` | 反选 |
-| `S` | 切换排序（占用 / 名称 / 日期） |
-| `/` | 按名称过滤，`Esc` 清空 |
-| `D` | 卸载：进入待确认，再按一次执行 |
-| `L` | 切换界面语言（简体中文 / English） |
-| `R` | 重新扫描 |
-| `?` | 帮助。帮助页是只读状态，只响应 `?` 返回、`L` 切语言、`q` 退出；顶部还有「← 返回」按钮，单击顶部标题也能退出 |
-| `Q` / `Esc` / `Ctrl+C` | 退出 |
+| `↑` `↓` / `k` `j` | move the cursor |
+| `PgUp` `PgDn` / `Home` `End` | page up / down, jump to first / last |
+| `Space` | select or deselect |
+| `A` | select all / none |
+| `I` | invert the selection |
+| `S` | cycle sorting (size / name / date) |
+| `/` | filter by name, `Esc` clears |
+| `D` | remove: enter the confirm state, press again to run |
+| `L` | switch interface language (简体中文 / English) |
+| `R` | rescan |
+| `?` | help. The help page is read-only: it only responds to `?` (back), `L` (language) and `q` (quit); it also has a "← Back" button at the top, and clicking the title exits too |
+| `Q` / `Esc` / `Ctrl+C` | quit |
 
-`Enter` 没有任何绑定：它既不会选中、也不会触发卸载、也不会退出，避免和 `/` 过滤时的输入回车混淆。
+`Enter` is unbound on purpose: it neither selects, nor triggers removal, nor quits — so it can't be confused with confirming input while filtering with `/`.
 
-## 鼠标
+## Mouse
 
-| 操作 | 效果 |
+| Action | Effect |
 | --- | --- |
-| 单击软件项 | 光标移过去并**切换选中状态** |
-| 单击底部按键提示 | 等同按下对应按键（`Space` `A` `D` `/` `S` `I` `R` `?` `Q`，以及待确认时的「其它键」取消） |
-| 单击右上角 `L` 徽章 | 切到下一个语言 |
-| 单击「简体中文」/「English」 | 直接切到该语言 |
-| 单击右上角 `GitHub` | 用默认浏览器打开项目仓库 |
-| 单击顶部标题 | 回到主界面：关闭帮助 / 取消待确认 / 结束结果展示 |
-| 滚轮 | 上下移动光标 |
+| Click an app row | move the cursor there and **toggle its selection** |
+| Click a bottom key hint | same as pressing that key (`Space` `A` `D` `/` `S` `I` `R` `?` `Q`, plus "any key" to cancel while confirming) |
+| Click the `L` badge | switch to the next language |
+| Click 简体中文 / English | switch straight to that language |
+| Click `GitHub` | open the repository in the default browser |
+| Click the title | go back to the main view: close help / cancel a pending confirm / dismiss the result |
+| Wheel | move the cursor |
 
-命中判断基于渲染时记录的布局，因此点击区域永远和看到的画面一致；方向键提示不做点击绑定（用滚轮或直接点条目即可）。
+Hit testing uses the layout recorded while rendering, so clickable regions always match what you see. The arrow-key hints have no click binding (use the wheel or click a row directly).
 
-## 界面语言
+## Interface language
 
-右上角常驻 `GitHub` 入口与语言切换器，例如 `GitHub  L 简体中文 | English`：`GitHub` 带下划线表示可点击（点击用默认浏览器打开仓库）；语言部分采用中性灰的小徽章样式，`L` 键提示与当前语言都带底色（当前语言底色略亮），未选中的语言不带底色——与底部按键提示观感一致，但整体是中性色，不抢列表注意力。按 `L` 即时切换，无需重启。
+The top right always shows the `GitHub` link and the language switcher, e.g. `GitHub  L 简体中文 | English`: `GitHub` is underlined to signal it's clickable (opens the repo in your browser); the language part uses neutral-grey chips, with both the `L` hint and the current language carrying a background (the current one slightly brighter) while unselected languages don't — consistent with the bottom key hints, but kept neutral so it doesn't pull attention from the list. Press `L` to switch instantly, no restart needed.
 
-启动时也可以用 `-lang en` 指定初始语言。所有界面文案集中在 `internal/i18n`，新增语言只需补一份 `Strings`；测试会反射检查是否有字段漏翻译。
+You can also pick the initial language with `-lang en`. All UI strings live in `internal/i18n`; adding a language means adding one `Strings` value — a test reflects over the struct and fails if any field is untranslated.
 
-英文的计数名词统一写成 `app(s)` / `folder(s)` 的形式（`1 app(s)`、`3 app(s)`），因为这些数字经常就是 1，而英文没有能同时读通 0/1/N 的复数形式 —— 写死复数会出现 "1 apps"。
+English counting nouns are always written as `app(s)` / `folder(s)` (`1 app(s)`, `3 app(s)`), because those numbers are frequently 1 and English has no plural form that reads correctly for both 0/1 and N — hardcoding the plural produces "1 apps".
 
-## 版本号
+## Version
 
-版本号就是构建日期，格式 `yyMMdd`（例如 `260910`），显示在 TUI 右上角、GitHub 入口左侧，也用于 `--version`。
+The version number is the build date in `yyMMdd` form (e.g. `260910`). It's shown in the top right of the TUI, to the left of the GitHub link, and is also what `--version` prints.
 
-仓库自带 `build.ps1`，会自动注入当天日期，并生成 Windows 版本资源：
+The repo ships a `build.ps1` that injects today's date and generates the Windows version resource:
 
 ```powershell
 .\build.ps1
 ```
 
-这一步还会让 exe 在资源管理器 → 属性 → 详细信息里显示出文件说明、产品名称、公司、版权和文件/产品版本。Go 默认不写 VERSIONINFO 资源，少了这步这些字段就是空的。
+That step is also what fills in the file description, product name, company, copyright, and file/product version shown in Explorer → Properties → Details. Go writes no VERSIONINFO by default, so without it those fields stay blank.
 
-版本资源的文案在 [versioninfo.json](versioninfo.json)，其中 `__MAJOR__` / `__MINOR__` / `__PATCH__` / `__VERSION_DOTTED__` 由脚本按当天日期替换（`260910` → `26.9.10`）。生成的 `resource_windows_*.syso` 不入库，但 `go build` 只要在项目根目录看到它就会自动链接，所以手动构建前先跑一次 `build.ps1` 即可。
+The resource text lives in [versioninfo.json](versioninfo.json), where `__MAJOR__` / `__MINOR__` / `__PATCH__` / `__VERSION_DOTTED__` are replaced by the script with today's date (`260910` → `26.9.10`). The generated `resource_windows_*.syso` is not committed, but `go build` links it automatically whenever it sits in the project root — so run `build.ps1` once before building manually.
 
-直接用 `go build` 而不注入时，TUI 里的版本号会回退到可执行文件的构建时间（即文件修改时间），因此同样能得到构建当天的日期。
+If you use plain `go build` without injection, the TUI version falls back to the executable's build time (its file modification time), which still yields the day it was built.
 
-## 使用
+## Usage
 
 ```powershell
-.\build.ps1            # 构建并写入当天版本号
+.\build.ps1            # build and stamp today's version
 .\ued-uninstaller.exe
 ```
 
-或手动构建（先在 Windows 上跑过一次 `build.ps1`，让版本资源就位）：
+Or build manually (after running `build.ps1` once on Windows so the version resource exists):
 
 ```bash
 go build -o ued-uninstaller.exe .
 ./ued-uninstaller.exe
 ```
 
-命令行参数：
+Command-line flags:
 
 ```
--namespace string   软件数据所在的命名空间目录名（默认 "unieditdept"）
--lang string        界面语言：zh 或 en（默认 zh）
--dry-run            演练模式：只统计可释放空间，不真正删除
--no-anim            关闭动画（低配终端或远程会话可用）
--no-prune           删除后保留空的命名空间目录
--log string         日志文件路径，为空则不记录
--version            显示版本信息
+-namespace string   name of the namespace directory holding app data (default "unieditdept")
+-lang string        interface language: zh or en (default zh)
+-dry-run            dry run: measure reclaimable space without deleting anything
+-no-anim            disable animations (for weak terminals or remote sessions)
+-no-prune           keep the empty namespace directories after removal
+-log string         path to a log file; empty means no logging
+-version            print version information
 ```
 
-## 项目结构
+## Project layout
 
 ```
-main.go                    命令行入口
-internal/app               根模型：持有当前屏幕并分发消息
-internal/config            运行配置
-internal/core              领域层：路径解析、数据模型、扫描器、删除器（与界面无关）
-internal/i18n              界面文案与语言切换
-internal/version           版本号（构建日期）
-internal/platform          与操作系统相关的文件操作（创建时间、只读属性清理）
-internal/logging           可选的文件日志
-internal/ui                Screen 抽象与跨屏幕消息
-internal/ui/theme          主色板与 lipgloss 样式
-internal/ui/ascii          渐变着色、波形、指示器、擦除等动画
-internal/ui/components     通用构件（盒子、进度条、帮助栏、文本裁剪）
-internal/ui/screens/home   唯一的主屏幕
+main.go                     command-line entry point
+internal/app                root model: holds the current screen and dispatches messages
+internal/config             runtime configuration
+internal/core               domain layer: path resolution, data model, scanner, remover (UI-agnostic)
+internal/i18n               UI strings and language switching
+internal/version            version number (build date)
+internal/platform           OS-specific file operations (creation time, clearing read-only)
+internal/logging            optional file logging
+internal/ui                 Screen abstraction and cross-screen messages
+internal/ui/theme           primary palette and lipgloss styles
+internal/ui/ascii           gradient shading, wave, spinner, dissolve animations
+internal/ui/components      shared building blocks (box, progress bar, help line, text clipping)
+internal/ui/screens/home    the one and only main screen
 ```
 
-## 设计要点
+## Design notes
 
-- **领域与界面分离**：`internal/core` 不依赖任何 UI 代码，可独立测试；扫描与删除通过事件流（`Event`）与界面通信。
-- **两段扫描**：先枚举（同步、瞬时）再统计（异步、并发），界面在任何时刻都可用；统计结果按「软件名 + 位置」回填，不需要重排或重建列表。
-- **可中断**：扫描与删除都接收 `context.Context`，取消后不再发送事件；重新扫描时会关闭旧任务，避免 goroutine 泄漏。
-- **健壮性**：目录不可读时跳过并继续；删除前清理只读属性，失败后重试一次；删除失败逐项记录。
-- **自适应布局**：界面在 80×24 至 200×60 之间均不会溢出，快捷键提示按宽度自动取舍（有单元测试保障）。
-- **宽度定义必须唯一**：所有排版计算统一使用 `charmbracelet/x/ansi` 的宽度（与 lipgloss / bubbletea 渲染一致），**不要引入 `mattn/go-runewidth`**。它在中文 Windows 上会把 `↑` `↓` `·` `│` 这类 ambiguous 字符算作 2 列，而渲染按 1 列定位；两套宽度不一致会让行宽算错，进而在 ANSI 转义序列中间被截断，表现为「底部提示条只剩 `↑/`」这种半行内容凭空消失。所有截断都必须用 `ansi.Truncate`（不会破坏转义序列），且不要对已着色的字符串做手工按 rune 裁剪。
+- **Domain and UI separated**: `internal/core` depends on no UI code and is testable on its own; scanning and removal talk to the UI through an event stream (`Event`).
+- **Two-phase scanning**: enumerate first (synchronous, instant), then measure (asynchronous, concurrent), so the UI is usable at every moment; results are filled back by "app name + location", with no need to re-sort or rebuild the list.
+- **Interruptible**: both scanning and removal take a `context.Context` and stop emitting events once cancelled; a rescan shuts the old task down to avoid leaking goroutines.
+- **Robustness**: unreadable directories are skipped and the walk continues; read-only attributes are cleared before deletion, a failure is retried once, and failures are recorded per item.
+- **Adaptive layout**: the interface never overflows between 80×24 and 200×60, and the key hints are dropped by width (covered by unit tests).
+- **One width definition only**: every layout computation uses `charmbracelet/x/ansi` width (matching how lipgloss / bubbletea render). **Do not introduce `mattn/go-runewidth`** — on Chinese Windows it counts ambiguous characters like `↑` `↓` `·` `│` as 2 columns while rendering positions them at 1, and the mismatch makes row widths wrong, which then truncates in the middle of an ANSI escape sequence and shows up as the bottom hint bar losing everything after `↑/`. Every truncation must go through `ansi.Truncate` (which won't break escape sequences), and never hand-clip an already-styled string by rune.
 
-## 测试
+## Tests
 
 ```bash
 go test ./...
 ```
 
-设置 `UED_DUMP=<文件路径>` 后运行 `go test ./internal/app -run TestDumpHome` 可导出各状态的界面快照（纯文本，便于人工检查布局）。
+Set `UED_DUMP=<path>` and run `go test ./internal/app -run TestDumpHome` to export snapshots of each screen state (plain text, for eyeballing the layout).
