@@ -39,11 +39,18 @@
 | `S` | 切换排序（占用 / 名称 / 日期） |
 | `/` | 按名称过滤，`Esc` 清空 |
 | `D` | 卸载：进入待确认，再按一次执行 |
+| `L` | 切换界面语言（简体中文 / English） |
 | `R` | 重新扫描 |
 | `?` | 帮助 |
 | `Q` / `Esc` / `Ctrl+C` | 退出 |
 
 `Enter` 没有任何绑定：它既不会选中、也不会触发卸载、也不会退出，避免和 `/` 过滤时的输入回车混淆。
+
+## 界面语言
+
+右上角常驻语言切换器，例如 `L 简体中文 | English`：`L` 键提示最淡，当前语言稍亮，未选中的语言最暗。按 `L` 即时切换，无需重启。
+
+启动时也可以用 `-lang en` 指定初始语言。所有界面文案集中在 `internal/i18n`，新增语言只需补一份 `Strings`；测试会反射检查是否有字段漏翻译。
 
 ## 版本号
 
@@ -75,6 +82,7 @@ go build -o ued-uninstaller.exe .
 
 ```
 -namespace string   软件数据所在的命名空间目录名（默认 "unieditdept"）
+-lang string        界面语言：zh 或 en（默认 zh）
 -dry-run            演练模式：只统计可释放空间，不真正删除
 -no-anim            关闭动画（低配终端或远程会话可用）
 -no-prune           删除后保留空的命名空间目录
@@ -89,6 +97,8 @@ main.go                    命令行入口
 internal/app               根模型：持有当前屏幕并分发消息
 internal/config            运行配置
 internal/core              领域层：路径解析、数据模型、扫描器、删除器（与界面无关）
+internal/i18n              界面文案与语言切换
+internal/version           版本号（构建日期）
 internal/platform          与操作系统相关的文件操作（创建时间、只读属性清理）
 internal/logging           可选的文件日志
 internal/ui                Screen 抽象与跨屏幕消息

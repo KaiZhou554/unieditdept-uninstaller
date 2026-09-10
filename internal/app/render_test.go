@@ -302,6 +302,56 @@ func TestRescanKeepsTerminalSize(t *testing.T) {
 	}
 }
 
+// TestLanguageSwitch 校验按 L 能在中英之间切换，且切换器始终展示两种语言。
+func TestLanguageSwitch(t *testing.T) {
+	setupData(t)
+	screen := newScannedHome(t)
+
+	zh := plainView(screen, 100, 30)
+	if !strings.Contains(zh, "软件（") {
+		t.Fatalf("默认应为中文:\n%s", zh)
+	}
+	if !strings.Contains(zh, "L 简体中文 | English") {
+		t.Errorf("右上角应显示语言切换器:\n%s", zh)
+	}
+
+	screen, _ = press(screen, "L")
+	en := plainView(screen, 100, 30)
+	if !strings.Contains(en, "Apps (") {
+		t.Errorf("切换后应显示英文列表标题:\n%s", en)
+	}
+	if strings.Contains(en, "软件（") {
+		t.Errorf("切换后不应残留中文:\n%s", en)
+	}
+	if !strings.Contains(en, "L 简体中文 | English") {
+		t.Errorf("切换器应始终展示两种语言:\n%s", en)
+	}
+
+	screen, _ = press(screen, "L")
+	if back := plainView(screen, 100, 30); !strings.Contains(back, "软件（") {
+		t.Errorf("再按一次应切回中文:\n%s", back)
+	}
+}
+
+// TestEnglishLayoutFits 校验英文文案（通常更长）在各尺寸下同样不溢出。
+func TestEnglishLayoutFits(t *testing.T) {
+	setupData(t)
+	screen := newScannedHome(t)
+	screen, _ = press(screen, "L") // 切到英文
+
+	for _, size := range sizes {
+		checkFits(t, "en-idle", screen, size[0], size[1])
+	}
+	confirming, _ := press(screen, "d")
+	for _, size := range sizes {
+		checkFits(t, "en-confirm", confirming, size[0], size[1])
+	}
+	help, _ := press(screen, "?")
+	for _, size := range sizes {
+		checkFits(t, "en-help", help, size[0], size[1])
+	}
+}
+
 // TestHomeSmallTerminal 校验极小终端下不崩溃。
 func TestHomeSmallTerminal(t *testing.T) {
 	setupData(t)
@@ -444,6 +494,10 @@ func TestDumpHome(t *testing.T) {
 	dump("启动（枚举完成，统计进行中）", screen)
 	screen = driveUntilIdle(t, screen, screen.Init(), 5000)
 	dump("空闲", screen)
+
+	screen, _ = press(screen, "L")
+	dump("English idle", screen)
+	screen, _ = press(screen, "L")
 
 	screen, _ = press(screen, "a")
 	dump("已全选", screen)

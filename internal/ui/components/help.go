@@ -29,40 +29,62 @@ func Help(bindings []Binding, tick, maxWidth int) string {
 	width := 0
 	for i, b := range bindings {
 		keys := strings.Join(b.Keys, "/")
-		text := keys + " " + b.Desc
+		desc := b.Desc
 
-		need := Width(text)
+		sepW := 0
 		if i > 0 {
-			need += itemSep
+			sepW = itemSep
 		}
-		if maxWidth > 0 {
-			if i == 0 {
-				// 首条放不下时在纯文本上裁剪（此时还没有着色，是安全的）。
-				if need > maxWidth {
-					text = Truncate(text, maxWidth, "…")
+
+		// itemWidth 给出这一条渲染后的真实宽度：
+		// 普通项的按键两侧各留一格（让背景色块不贴字），告警项同样左右各加一格。
+		itemWidth := func() int {
+			if b.Alert {
+				w := Width(keys)
+				if desc != "" {
+					w += 1 + Width(desc)
 				}
-			} else if width+need > maxWidth {
+				return w + 2
+			}
+			return Width(keys) + 2 + 1 + Width(desc)
+		}
+
+		if maxWidth > 0 && width+sepW+itemWidth() > maxWidth {
+			if i > 0 {
 				break // 后续条目整体舍弃
+			}
+			// 连首条都放不下时退化为只显示按键。
+			desc = ""
+			keys = Truncate(keys, maxWidth-2, "…")
+			if width+sepW+itemWidth() > maxWidth {
+				break
 			}
 		}
 
-		if i > 0 {
-			sb.WriteString(strings.Repeat(" ", itemSep))
-			width += itemSep
+		if sepW > 0 {
+			sb.WriteString(strings.Repeat(" ", sepW))
+			width += sepW
 		}
-		if b.Alert {
+		switch {
+		case b.Alert:
+			text := keys
+			if desc != "" {
+				text += " " + desc
+			}
 			// 用缓慢扫过的光带代替闪烁。
 			sb.WriteString(ascii.ScanHighlight(" "+text+" ", tick))
-		} else {
-			sb.WriteString(st.Key.Render(keys) + " " + st.KeyDesc.Render(b.Desc))
+		case desc == "":
+			sb.WriteString(st.Key.Render(" " + keys + " "))
+		default:
+			sb.WriteString(st.Key.Render(" "+keys+" ") + " " + st.KeyDesc.Render(desc))
 		}
-		width += need
+		width += itemWidth()
 	}
 	return sb.String()
 }
 
 // Header 渲染顶部标题栏。
-// right 超宽时会在纯文本阶段裁剪，保证整行不超过 w。
+// right 需自带样式（调用方决定配色）；超宽时会做 ANSI 安全的裁剪，保证整行不超过 w。
 func Header(title, right string, w int, rule string) string {
 	st := theme.S()
 	leftPlain := "◆ " + title
@@ -81,7 +103,7 @@ func Header(title, right string, w int, rule string) string {
 		if gap < 1 {
 			gap = 1
 		}
-		line += strings.Repeat(" ", gap) + st.Muted.Render(right)
+		line += strings.Repeat(" ", gap) + right
 	}
 	if rule == "" {
 		return line

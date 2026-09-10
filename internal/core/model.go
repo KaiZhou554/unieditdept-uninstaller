@@ -113,17 +113,6 @@ const (
 	SortByCreated
 )
 
-func (m SortMode) String() string {
-	switch m {
-	case SortByName:
-		return "名称"
-	case SortByCreated:
-		return "日期"
-	default:
-		return "占用"
-	}
-}
-
 // Next 切换到下一种排序方式。
 func (m SortMode) Next() SortMode {
 	return SortMode((int(m) + 1) % 3)

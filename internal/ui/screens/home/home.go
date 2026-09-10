@@ -7,6 +7,7 @@ package home
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/unieditdept/ued-uninstaller/internal/config"
 	"github.com/unieditdept/ued-uninstaller/internal/core"
+	"github.com/unieditdept/ued-uninstaller/internal/i18n"
 	"github.com/unieditdept/ued-uninstaller/internal/ui"
 	"github.com/unieditdept/ued-uninstaller/internal/ui/ascii"
 	"github.com/unieditdept/ued-uninstaller/internal/ui/components"
@@ -61,6 +63,9 @@ type Model struct {
 	cfg   config.Config
 	roots []core.Root
 	items []core.Software
+
+	lang i18n.Lang     // 当前语言
+	txt  *i18n.Strings // 当前语言的文案
 
 	view   []int // 过滤后的 items 索引
 	index  map[string]int
@@ -109,16 +114,26 @@ func New(cfg config.Config, width, height int) *Model {
 	if height <= 0 {
 		height = 24
 	}
+	lang := i18n.Parse(cfg.Lang)
 	return &Model{
 		cfg:      cfg,
 		roots:    core.ResolveRoots(cfg.Namespace),
+		items:    nil,
 		index:    make(map[string]int),
+		lang:     lang,
+		txt:      i18n.Get(lang),
 		sortMode: core.SortBySize,
 		autoSort: true,
 		phase:    phaseScan,
 		w:        width,
 		h:        height,
 	}
+}
+
+// setLang 切换界面语言。
+func (m *Model) setLang(l i18n.Lang) {
+	m.lang = l
+	m.txt = i18n.Get(l)
 }
 
 // Init 立即开始扫描（枚举 + 后台统计）。
@@ -200,7 +215,7 @@ func (m *Model) tickTimers() {
 	if m.phase == phaseConfirm {
 		m.confirmTTL--
 		if m.confirmTTL <= 0 {
-			m.cancelConfirm("已取消：超时未确认")
+			m.cancelConfirm(m.txt.CanceledByTime)
 		}
 	}
 	if m.messageTTL > 0 {
@@ -246,7 +261,7 @@ func (m *Model) handleEvent(ev core.Event) (ui.Screen, tea.Cmd) {
 		m.rebuild()
 
 	case core.ScanError:
-		m.setMessage(ev.Err.Error())
+		m.setMessage(fmt.Sprintf(m.txt.ScanFailed, ev.Err.Error()))
 
 	case core.ScanCompleted:
 		m.applyCompleted(ev)
@@ -324,7 +339,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (ui.Screen, tea.Cmd) {
 		if len(key) == 1 && strings.ContainsRune(confirmKeys, rune(key[0])) {
 			return m.startDelete()
 		}
-		m.cancelConfirm("已取消卸载")
+		m.cancelConfirm(m.txt.Canceled)
 		return m, nil
 	}
 
@@ -365,6 +380,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (ui.Screen, tea.Cmd) {
 		m.filtering = true
 	case "?":
 		m.showHelp = !m.showHelp
+	case "l", "L":
+		m.setLang(m.lang.Next())
 	case "r", "R":
 		return m, ui.Rescan()
 	case "d", "D":
@@ -608,7 +625,7 @@ func (m *Model) View() string {
 	}
 
 	rule := ascii.Rule(width, m.tick)
-	header := components.Header("UNIEDITDEPT 卸载程序", "", width, rule)
+	header := components.Header(m.txt.AppTitle, m.langSwitcher(), width, rule)
 	right := m.footerRight()
 	footer := components.Footer(m.footerLeft(width, components.Width(right)), right, width)
 
@@ -651,9 +668,10 @@ func (m *Model) View() string {
 }
 
 func (m *Model) listTitle() string {
-	title := "软件（" + core.HumanCount(len(m.view)) + "）"
+	count := core.HumanCount(len(m.view))
+	title := fmt.Sprintf(m.txt.ListTitle, count)
 	if m.filter != "" {
-		title += " · 过滤 " + m.filter
+		title = fmt.Sprintf(m.txt.ListFiltered, count, m.filter)
 	}
 	if m.filtering {
 		title += " ▌"
@@ -664,15 +682,15 @@ func (m *Model) listTitle() string {
 func (m *Model) taskTitle() string {
 	switch m.phase {
 	case phaseScan:
-		return "统计进度"
+		return m.txt.TaskScanning
 	case phaseConfirm:
-		return "确认卸载"
+		return m.txt.TaskConfirm
 	case phaseDelete:
-		return "卸载进度"
+		return m.txt.TaskRemoving
 	case phaseDone:
-		return "卸载结果"
+		return m.txt.TaskResult
 	default:
-		return "卸载任务"
+		return m.txt.TaskIdle
 	}
 }
 
@@ -680,9 +698,41 @@ func (m *Model) taskTitle() string {
 // 已选数量与体积由右侧任务面板承担，不必在底部重复。
 func (m *Model) footerRight() string { return version.String() }
 
+// langSwitcher 渲染右上角的语言切换提示，形如：L 简体中文 | English
+//
+// 三个层次由淡到亮：L 键提示最淡，未选中的语言居中，当前语言最亮，
+// 既能表明「按 L 可切换」，又不会抢走列表的注意力。
+func (m *Model) langSwitcher() string {
+	st := theme.S()
+	parts := make([]string, 0, len(i18n.Order)*2)
+	for i, l := range i18n.Order {
+		if i > 0 {
+			parts = append(parts, st.Neutral.Render("|"))
+		}
+		style := st.Neutral
+		if l == m.lang {
+			style = st.Muted
+		}
+		parts = append(parts, style.Render(l.Label()))
+	}
+	return st.Faint.Render("L") + " " + strings.Join(parts, " ")
+}
+
 // footerLeft 渲染底部左侧内容。reserved 是右侧统计信息已占用的宽度。
 func (m *Model) footerLeft(width, reserved int) string {
 	return components.Help(m.bindings(), m.tick, width-reserved-2)
+}
+
+// sortName 返回当前排序方式在该语言下的名称。
+func (m *Model) sortName() string {
+	switch m.sortMode {
+	case core.SortByName:
+		return m.txt.SortName
+	case core.SortByCreated:
+		return m.txt.SortDate
+	default:
+		return m.txt.SortSize
+	}
 }
 
 // bindings 返回当前状态下可用的快捷键，由 Help 按宽度取舍。
@@ -690,36 +740,36 @@ func (m *Model) bindings() []components.Binding {
 	switch {
 	case m.filtering:
 		return []components.Binding{
-			{Keys: []string{"enter"}, Desc: "确认过滤"},
-			{Keys: []string{"esc"}, Desc: "清空"},
+			{Keys: []string{"enter"}, Desc: m.txt.KeyConfirmFilter},
+			{Keys: []string{"esc"}, Desc: m.txt.KeyClear},
 		}
 	case m.phase == phaseConfirm:
 		return []components.Binding{
-			{Keys: []string{"D"}, Desc: "确认卸载 " + core.HumanCount(core.SelectedCount(m.items)) + " 项", Alert: true},
-			{Keys: []string{"其它键"}, Desc: "取消"},
+			{Keys: []string{"D"}, Desc: fmt.Sprintf(m.txt.KeyConfirmN, core.HumanCount(core.SelectedCount(m.items))), Alert: true},
+			{Keys: []string{m.txt.KeyAnyKey}, Desc: m.txt.KeyCancel},
 		}
 	case m.phase == phaseDelete:
-		return []components.Binding{{Keys: []string{"ctrl+c"}, Desc: "中断"}}
+		return []components.Binding{{Keys: []string{"ctrl+c"}, Desc: m.txt.KeyAbort}}
 	case m.phase == phaseDone:
 		// 卸载已完成，列表可能已空，只留仍然有意义的两个键。
 		return []components.Binding{
-			{Keys: []string{"r"}, Desc: "重扫"},
-			{Keys: []string{"q"}, Desc: "退出"},
+			{Keys: []string{"r"}, Desc: m.txt.KeyRescan},
+			{Keys: []string{"q"}, Desc: m.txt.KeyQuit},
 		}
 	}
 
 	// 按重要程度排列，放不下时从末尾开始舍弃。
 	return []components.Binding{
-		{Keys: []string{"↑", "↓"}, Desc: "移动"},
-		{Keys: []string{"space"}, Desc: "选择"},
-		{Keys: []string{"a"}, Desc: "全选"},
-		{Keys: []string{"d"}, Desc: "卸载"},
-		{Keys: []string{"/"}, Desc: "搜索"},
-		{Keys: []string{"s"}, Desc: "排序:" + m.sortMode.String()},
-		{Keys: []string{"i"}, Desc: "反选"},
-		{Keys: []string{"r"}, Desc: "重扫"},
-		{Keys: []string{"?"}, Desc: "帮助"},
-		{Keys: []string{"q"}, Desc: "退出"},
+		{Keys: []string{"↑", "↓"}, Desc: m.txt.KeyMove},
+		{Keys: []string{"space"}, Desc: m.txt.KeySelect},
+		{Keys: []string{"a"}, Desc: m.txt.KeySelectAll},
+		{Keys: []string{"d"}, Desc: m.txt.KeyUninstall},
+		{Keys: []string{"/"}, Desc: m.txt.KeySearch},
+		{Keys: []string{"s"}, Desc: fmt.Sprintf(m.txt.KeySort, m.sortName())},
+		{Keys: []string{"i"}, Desc: m.txt.KeyInvert},
+		{Keys: []string{"r"}, Desc: m.txt.KeyRescan},
+		{Keys: []string{"?"}, Desc: m.txt.KeyHelp},
+		{Keys: []string{"q"}, Desc: m.txt.KeyQuit},
 	}
 }
 
@@ -786,10 +836,10 @@ func (m *Model) renderHeader(width int) string {
 
 	var sb strings.Builder
 	sb.WriteString("    ") // 与光标 + 选择框对齐
-	sb.WriteString(faint(components.Pad("名称", l.nameW)))
-	sb.WriteString(" " + faint(components.PadLeft("占用", l.sizeW)))
+	sb.WriteString(faint(components.Pad(m.txt.ColName, l.nameW)))
+	sb.WriteString(" " + faint(components.PadLeft(m.txt.ColSize, l.sizeW)))
 	if l.dateW > 0 {
-		sb.WriteString(" " + faint(components.PadLeft("创建日期", l.dateW)))
+		sb.WriteString(" " + faint(components.PadLeft(m.txt.ColCreated, l.dateW)))
 	}
 	return components.Fit(components.StripANSI(sb.String()), width)
 }
@@ -817,7 +867,7 @@ func (m *Model) renderRow(sw core.Software, active bool, width int) string {
 	if m.measured(sw) {
 		sb.WriteString(components.PadLeft(core.HumanSize(sw.TotalSize()), l.sizeW))
 	} else {
-		sb.WriteString(components.PadLeft("计算中", l.sizeW))
+		sb.WriteString(components.PadLeft(m.txt.Calculating, l.sizeW))
 	}
 	if l.dateW > 0 {
 		sb.WriteString(" " + m.dateText(sw.Created(), l))
@@ -860,14 +910,14 @@ func (m *Model) dateText(t time.Time, l rowLayout) string {
 // emptyState 渲染列表的空状态，只保留一句说明。
 func (m *Model) emptyState(width int) string {
 	st := theme.S()
-	text := "没有发现任何软件"
+	text := m.txt.NoApps
 	switch {
 	case !m.loaded:
-		text = "正在读取软件列表…"
+		text = m.txt.Loading
 	case len(m.items) == 0 && m.phase == phaseDone:
-		text = "已全部卸载"
+		text = m.txt.AllRemoved
 	case len(m.items) > 0:
-		text = "没有匹配 “" + m.filter + "” 的软件"
+		text = fmt.Sprintf(m.txt.NoMatch, m.filter)
 	}
 	return "\n\n" + components.Center(st.Subtle.Render(text), width)
 }
@@ -894,60 +944,63 @@ func (m *Model) renderTask(width, height int) string {
 		if m.scanTotal > 0 {
 			ratio = float64(m.scanDone) / float64(m.scanTotal)
 		}
-		add(" " + ascii.Spinner(m.tick) + " " + st.Strong.Render("正在统计占用"))
+		add(" " + ascii.Spinner(m.tick) + " " + st.Strong.Render(m.txt.ScanningUsage))
 		add("")
 		add(" " + components.Bar(inner-2, ratio, m.tick))
-		add(" " + st.Muted.Render(core.HumanCount(m.scanDone)+" / "+core.HumanCount(m.scanTotal)+" 个目录"))
-		add(" " + st.Faint.Render("已统计 "+core.HumanSize(m.scanBytes)))
+		add(" " + st.Muted.Render(fmt.Sprintf(m.txt.FolderProgress,
+			core.HumanCount(m.scanDone), core.HumanCount(m.scanTotal))))
+		add(" " + st.Faint.Render(fmt.Sprintf(m.txt.FolderMeasured, core.HumanSize(m.scanBytes))))
 
 	case phaseConfirm:
-		add(" " + st.Danger.Render("待确认"))
+		add(" " + st.Danger.Render(m.txt.ConfirmPending))
 		add("")
-		add(" " + st.Base.Render(core.HumanCount(core.SelectedCount(m.items))+" 个软件"))
-		add(" " + st.Muted.Render("预计释放 ") + st.Subtle.Render(core.HumanSize(core.SelectedSize(m.items))))
+		add(" " + st.Base.Render(fmt.Sprintf(m.txt.AppCount, core.HumanCount(core.SelectedCount(m.items)))))
+		add(" " + st.Subtle.Render(fmt.Sprintf(m.txt.WillFree, core.HumanSize(core.SelectedSize(m.items)))))
 		add("")
-		add(" " + st.Warn.Render(strconv.Itoa(m.confirmTTL/ui.FrameRate+1)+" 秒后自动取消"))
+		add(" " + st.Warn.Render(fmt.Sprintf(m.txt.AutoCancelIn,
+			strconv.Itoa(m.confirmTTL/ui.FrameRate+1))))
 
 	case phaseDelete:
 		ratio := 0.0
 		if m.del.total > 0 {
 			ratio = float64(m.del.done) / float64(m.del.total)
 		}
-		verb := "正在卸载"
+		verb := m.txt.Removing
 		if m.cfg.DryRun {
-			verb = "正在演练"
+			verb = m.txt.DryRunning
 		}
 		add(" " + ascii.Spinner(m.tick) + " " + st.Strong.Render(verb))
 		add("")
 		add(" " + components.Bar(inner-2, ratio, m.tick))
-		add(" " + st.Muted.Render(core.HumanCount(m.del.done)+" / "+core.HumanCount(m.del.total)+" 个目录"))
-		add(" " + st.Faint.Render("已释放 "+core.HumanSize(m.del.shown)))
+		add(" " + st.Muted.Render(fmt.Sprintf(m.txt.FolderProgress,
+			core.HumanCount(m.del.done), core.HumanCount(m.del.total))))
+		add(" " + st.Faint.Render(fmt.Sprintf(m.txt.Freed, core.HumanSize(m.del.shown))))
 		add("")
 		lines = append(lines, m.taskLines(inner, rows-len(lines))...)
 
 	case phaseDone:
 		res := m.del.result
-		headline := "✓ 卸载完成"
+		headline := m.txt.ResultDone
 		if m.cfg.DryRun {
-			headline = "✓ 演练完成"
+			headline = m.txt.ResultDoneDry
 		}
 		if len(res.Failures) > 0 {
-			headline = "! 存在失败项"
+			headline = m.txt.ResultWithErrors
 		}
 		add(" " + st.OK.Render(headline))
 		add("")
-		add(" " + st.Muted.Render("删除 ") + st.Base.Render(core.HumanCount(res.Deleted)+" 个目录"))
-		add(" " + st.Muted.Render("释放 ") + st.Subtle.Render(core.HumanSize(res.Freed)))
-		add(" " + st.Muted.Render("耗时 ") + st.Base.Render(res.Elapsed.Round(time.Millisecond).String()))
+		add(" " + st.Muted.Render(fmt.Sprintf(m.txt.RemovedDirs, core.HumanCount(res.Deleted))))
+		add(" " + st.Muted.Render(fmt.Sprintf(m.txt.Freed, core.HumanSize(res.Freed))))
+		add(" " + st.Muted.Render(fmt.Sprintf(m.txt.Elapsed, res.Elapsed.Round(time.Millisecond).String())))
 		if len(res.Pruned) > 0 {
-			add(" " + st.Faint.Render("清理空目录 "+core.HumanCount(len(res.Pruned))+" 个"))
+			add(" " + st.Faint.Render(fmt.Sprintf(m.txt.PrunedDirs, core.HumanCount(len(res.Pruned)))))
 		}
 		if len(res.Failures) > 0 {
 			add("")
-			add(" " + st.Danger.Render("失败 "+core.HumanCount(len(res.Failures))+" 项"))
+			add(" " + st.Danger.Render(fmt.Sprintf(m.txt.FailedCount, core.HumanCount(len(res.Failures)))))
 			for i, f := range res.Failures {
 				if i >= 4 {
-					add(" " + st.Faint.Render("… 另有 "+core.HumanCount(len(res.Failures)-i)+" 项"))
+					add(" " + st.Faint.Render(fmt.Sprintf(m.txt.MoreItems, core.HumanCount(len(res.Failures)-i))))
 					break
 				}
 				add(" " + st.Base.Render(components.Truncate(f.Name, inner-4, "…")))
@@ -961,10 +1014,10 @@ func (m *Model) renderTask(width, height int) string {
 		if count == 0 {
 			break
 		}
-		add(" " + st.Strong.Render(core.HumanCount(count)+" 个软件"))
-		add(" " + st.Muted.Render("预计释放 ") + st.Subtle.Render(core.HumanSize(core.SelectedSize(m.items))))
+		add(" " + st.Strong.Render(fmt.Sprintf(m.txt.AppCount, core.HumanCount(count))))
+		add(" " + st.Subtle.Render(fmt.Sprintf(m.txt.WillFree, core.HumanSize(core.SelectedSize(m.items)))))
 		add("")
-		add(" " + st.Faint.Render("按 D 卸载"))
+		add(" " + st.Faint.Render(m.txt.PressToRemove))
 	}
 
 	if len(lines) > rows {
@@ -1025,27 +1078,14 @@ func (m *Model) taskLines(inner, rows int) []string {
 
 func (m *Model) helpLines() []string {
 	st := theme.S()
-	groups := [][2]string{
-		{"↑ / ↓ · k / j", "上下移动光标"},
-		{"PgUp / PgDn", "翻页"},
-		{"Home / End", "跳到首项 / 末项"},
-		{"Space", "选择或取消选择当前软件"},
-		{"A", "全选 / 取消全选当前列表"},
-		{"I", "反选当前列表"},
-		{"S", "切换排序（占用 / 名称 / 日期）"},
-		{"/", "按名称搜索，Esc 清空"},
-		{"D", "卸载：进入待确认，再按一次 D 执行"},
-		{"R", "重新扫描"},
-		{"?", "显示或隐藏本帮助"},
-		{"Q / Ctrl+C", "退出程序"},
-	}
-	lines := make([]string, 0, len(groups)+4)
-	lines = append(lines, st.Subtle.Render("创建日期为三个位置中最早创建的那个目录"))
+	entries := m.txt.HelpEntries
+	lines := make([]string, 0, len(entries)+4)
+	lines = append(lines, st.Subtle.Render(m.txt.HelpCreatedNote))
 	lines = append(lines, "")
-	for _, g := range groups {
-		lines = append(lines, "  "+st.Key.Render(g[0])+"  "+st.KeyDesc.Render(g[1]))
+	for _, e := range entries {
+		lines = append(lines, "  "+st.Key.Render(" "+e[0]+" ")+"  "+st.KeyDesc.Render(e[1]))
 	}
 	lines = append(lines, "")
-	lines = append(lines, st.Faint.Render("  待确认状态下按其它任意键即取消，超时也会自动取消。"))
+	lines = append(lines, st.Faint.Render("  "+m.txt.HelpCancelNote))
 	return lines
 }

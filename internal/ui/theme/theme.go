@@ -65,11 +65,13 @@ type Styles struct {
 }
 
 var styles = sync.OnceValue(func() *Styles {
+	// 注意：这里不要用 Padding。带 padding 的样式会让实际渲染宽度比字符串宽度
+	// 多出若干格，而排版处的宽度估算是按字符串算的，两者不一致就会溢出或误截断。
+	// 按键两侧的空隙由调用方显式书写。
 	key := lipgloss.NewStyle().
 		Foreground(PrimaryPale).
 		Background(PrimaryDeep).
-		Bold(true).
-		Padding(0, 1)
+		Bold(true)
 	return &Styles{
 		Base:    lipgloss.NewStyle().Foreground(Text),
 		Title:   lipgloss.NewStyle().Foreground(Primary).Bold(true),

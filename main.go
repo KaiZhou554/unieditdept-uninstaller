@@ -11,6 +11,7 @@ import (
 
 	"github.com/unieditdept/ued-uninstaller/internal/app"
 	"github.com/unieditdept/ued-uninstaller/internal/config"
+	"github.com/unieditdept/ued-uninstaller/internal/i18n"
 	"github.com/unieditdept/ued-uninstaller/internal/logging"
 	"github.com/unieditdept/ued-uninstaller/internal/version"
 )
@@ -28,6 +29,7 @@ func run() error {
 	showVersion := flag.Bool("version", false, "显示版本信息")
 	namespace := flag.String("namespace", cfg.Namespace, "软件数据所在的命名空间目录名")
 	dryRun := flag.Bool("dry-run", false, "演练模式：只统计可释放空间，不真正删除")
+	lang := flag.String("lang", cfg.Lang, "界面语言：zh 或 en")
 	noAnim := flag.Bool("no-anim", false, "关闭动画（低配终端或远程会话可用）")
 	noPrune := flag.Bool("no-prune", false, "删除后保留空的命名空间目录")
 	logPath := flag.String("log", "", "日志文件路径，为空则不记录")
@@ -39,6 +41,7 @@ func run() error {
 	}
 
 	cfg.Namespace = *namespace
+	cfg.Lang = string(i18n.Parse(*lang))
 	cfg.DryRun = *dryRun
 	cfg.Animate = !*noAnim
 	cfg.Prune = !*noPrune
