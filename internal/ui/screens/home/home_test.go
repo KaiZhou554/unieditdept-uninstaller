@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 	"github.com/unieditdept/ued-uninstaller/internal/config"
+	"github.com/unieditdept/ued-uninstaller/internal/core"
 	"github.com/unieditdept/ued-uninstaller/internal/i18n"
 	"github.com/unieditdept/ued-uninstaller/internal/ui"
 	"github.com/unieditdept/ued-uninstaller/internal/ui/components"
@@ -261,6 +262,68 @@ func findTopmost(m *Model, pred func(hitRegion) bool) (hitRegion, bool) {
 		}
 	}
 	return best, found
+}
+
+// TestHelpPageSwallowsListKeys 校验帮助页只看不按：列表相关按键一律不生效。
+//
+// 这条曾经是真实缺陷：showHelp 只参与了渲染，没参与按键分发，
+// 于是帮助页开着也能选择、卸载、重扫。
+func TestHelpPageSwallowsListKeys(t *testing.T) {
+	setupData(t)
+	m := ready(t)
+
+	m, _ = press(m, "?")
+	m.render()
+	if !m.showHelp {
+		t.Fatal("应先进入帮助页")
+	}
+
+	selected := core.SelectedCount(m.items)
+	for _, k := range []string{" ", "a", "i", "d", "s", "/", "r"} {
+		m, cmd := press(m, k)
+		if !m.showHelp {
+			t.Fatalf("按下 %q 不应离开帮助页", k)
+		}
+		if cmd != nil {
+			t.Errorf("按下 %q 不应产生命令", k)
+		}
+	}
+	if got := core.SelectedCount(m.items); got != selected {
+		t.Errorf("帮助页内不应改变选中数：%d → %d", selected, got)
+	}
+	if m.phase != phaseIdle {
+		t.Errorf("帮助页内不应切换阶段，实际 %v", m.phase)
+	}
+
+	// 移动键同样要被吞掉。
+	if m.cursor != 0 {
+		t.Fatalf("前置条件：光标应停在首行，实际 %d", m.cursor)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(*Model)
+	if m.cursor != 0 {
+		t.Errorf("帮助页内方向键不应移动光标，实际 %d", m.cursor)
+	}
+
+	// 底栏提示要同步收窄，不能还列着按不动的键。
+	m.render()
+	footer := components.StripANSI(strings.Split(m.View(), "\n")[m.h-1])
+	if strings.Contains(footer, m.txt.KeySelectAll) || strings.Contains(footer, m.txt.KeyUninstall) {
+		t.Errorf("帮助页底栏不应仍列出列表快捷键：%q", footer)
+	}
+
+	// 该保留的仍然可用：切换语言、返回。
+	m, _ = press(m, "l")
+	if m.lang != i18n.EN {
+		t.Errorf("帮助页内应仍可切换语言，实际 %q", m.lang)
+	}
+	if !m.showHelp {
+		t.Error("切换语言后应仍停留在帮助页")
+	}
+	m, _ = press(m, "?")
+	if m.showHelp {
+		t.Error("再按 ? 应关闭帮助")
+	}
 }
 
 // TestHelpBackButton 校验帮助页顶部的返回按钮能关闭帮助。

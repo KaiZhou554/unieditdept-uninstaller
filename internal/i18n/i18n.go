@@ -137,6 +137,8 @@ type Strings struct {
 	SortName string
 	SortDate string
 
+	KeyLang string
+
 	// 帮助页
 	HelpBack       string
 	HelpCancelNote string

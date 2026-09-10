@@ -58,6 +58,7 @@ var enStrings = &Strings{
 	KeyInvert:        "invert",
 	KeyRescan:        "rescan",
 	KeyHelp:          "help",
+	KeyLang:          "language",
 	KeyQuit:          "quit",
 	KeyConfirmFilter: "apply",
 	KeyClear:         "clear",

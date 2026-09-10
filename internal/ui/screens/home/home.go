@@ -477,6 +477,20 @@ func (m *Model) handleKey(msg tea.KeyMsg) (ui.Screen, tea.Cmd) {
 		return m, nil // 卸载过程中不接受其它操作
 	}
 
+	// 帮助页是纯阅读状态：只放行「返回 / 切换语言 / 退出」，
+	// 其余按键（移动、选择、卸载、重扫……）一律吞掉，免得边看说明边误操作。
+	if m.showHelp {
+		switch key {
+		case "?":
+			m.showHelp = false
+		case "l", "L":
+			m.setLang(m.lang.Next())
+		case "q", "Q", "esc":
+			return m, ui.Quit()
+		}
+		return m, nil
+	}
+
 	if m.filtering {
 		return m.handleFilterKey(msg), nil
 	}
@@ -1004,6 +1018,13 @@ func (m *Model) bindings() []components.Binding {
 		return []components.Binding{
 			{Keys: []string{"enter"}, Desc: m.txt.KeyConfirmFilter, Click: "enter"},
 			{Keys: []string{"esc"}, Desc: m.txt.KeyClear, Click: "esc"},
+		}
+	case m.showHelp:
+		// 与 handleKey 保持一致：帮助页只认这几个键，提示里也只列这几个。
+		return []components.Binding{
+			{Keys: []string{"?"}, Desc: m.txt.HelpBack, Click: "?"},
+			{Keys: []string{"L"}, Desc: m.txt.KeyLang, Click: "l"},
+			{Keys: []string{"q"}, Desc: m.txt.KeyQuit, Click: "q"},
 		}
 	case m.phase == phaseConfirm:
 		return []components.Binding{

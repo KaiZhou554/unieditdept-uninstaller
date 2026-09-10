@@ -58,6 +58,7 @@ var zhStrings = &Strings{
 	KeyInvert:        "反选",
 	KeyRescan:        "重扫",
 	KeyHelp:          "帮助",
+	KeyLang:          "语言",
 	KeyQuit:          "退出",
 	KeyConfirmFilter: "确认过滤",
 	KeyClear:         "清空",
