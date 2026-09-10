@@ -548,6 +548,10 @@ func TestDumpHome(t *testing.T) {
 	screen, _ = press(screen, "a")
 	dump("已全选", screen)
 
+	screen, _ = press(screen, "?")
+	dump("帮助", screen)
+	screen, _ = press(screen, "?")
+
 	screen, _ = press(screen, "d")
 	dump("待确认", screen)
 

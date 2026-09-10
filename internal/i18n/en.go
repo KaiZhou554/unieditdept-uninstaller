@@ -70,8 +70,11 @@ var enStrings = &Strings{
 	SortName: "name",
 	SortDate: "date",
 
+	HelpBack:       "Back",
 	HelpCancelNote: "In the confirm state any other key cancels, and it also times out.",
+	// 「?」必须放在第一条：它是帮助页的出口，找不到出口最让人困惑。
 	HelpEntries: [][2]string{
+		{"?", "close this help and go back"},
 		{"↑ / ↓ · k / j", "move the cursor"},
 		{"PgUp / PgDn", "page up / down"},
 		{"Home / End", "jump to first / last"},
@@ -83,7 +86,6 @@ var enStrings = &Strings{
 		{"D", "remove: enter confirm state, press D again to run"},
 		{"L", "switch interface language"},
 		{"R", "rescan"},
-		{"?", "toggle this help"},
 		{"Q / Ctrl+C", "quit"},
 	},
 }

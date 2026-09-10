@@ -68,6 +68,7 @@ const (
 	hitBinding                // 底部按键提示
 	hitLang                   // 右上角语言徽章
 	hitLink                   // 右上角链接
+	hitTitle                  // 顶部标题（回到主界面）
 )
 
 // githubURL 是右上角 GitHub 入口跳转的地址。
@@ -416,8 +417,30 @@ func (m *Model) activateHit(r hitRegion) (ui.Screen, tea.Cmd) {
 			}
 			return nil
 		}
+
+	case hitTitle:
+		m.goHome()
+		return m, nil
 	}
 	return m, nil
+}
+
+// goHome 回到主界面：关闭帮助、退出待确认、结束结果展示。
+// 卸载进行中不打断，避免误点导致状态错乱。
+func (m *Model) goHome() {
+	if m.phase == phaseDelete {
+		return
+	}
+	m.showHelp = false
+	m.filtering = false
+	m.message = ""
+	m.messageTTL = 0
+	switch m.phase {
+	case phaseConfirm:
+		m.cancelConfirm(m.txt.Canceled)
+	case phaseDone:
+		m.phase = phaseIdle
+	}
 }
 
 // keyMsgFor 把 Binding.Click 转换成对应的按键消息。
@@ -767,10 +790,13 @@ func (m *Model) View() string {
 	}
 
 	var body string
+	var back helpBack
 	switch {
 	case m.showHelp:
+		lines, b := m.helpLines()
+		back = b
 		body = components.Box{Title: m.txt.TaskHelp, Width: width, Height: bodyHeight}.
-			Render(strings.Join(m.helpLines(), "\n"))
+			Render(strings.Join(lines, "\n"))
 	case detailW > 0:
 		body = lipgloss.JoinHorizontal(lipgloss.Top,
 			components.Box{Title: m.listTitle(), Width: listW, Height: bodyHeight, Active: true}.
@@ -794,6 +820,8 @@ func (m *Model) View() string {
 		headHits:   headerHits,
 		spans:      spans,
 		bindings:   bindings,
+		showHelp:   m.showHelp,
+		helpBack:   back,
 	})
 
 	// 用 Place 强制输出固定尺寸，避免 bubbletea 行级 diff 错位导致旧内容残留。
@@ -813,17 +841,38 @@ type hitContext struct {
 	headHits      []headerHit
 	spans         []components.Span
 	bindings      []components.Binding
+	showHelp      bool
+	helpBack      helpBack
 }
 
 // 布局常量：标题 2 行 + 空行之后是内容区，最后一行是底栏。
 const (
-	bodyTop  = 3 // 内容区首行（0 标题、1 分隔线、2 空行）
-	listHead = 2 // 边框 1 行 + 列头 1 行
+	bodyTop   = 3 // 内容区首行（0 标题、1 分隔线、2 空行）
+	listHead  = 2 // 边框 1 行 + 列头 1 行
+	boxInnerX = 2 // Box 内内容的起始列：左边框 1 列 + 内边距 1 列
 )
 
 // rebuildHits 依据当前帧的布局重建可点击区域。
 func (m *Model) rebuildHits(ctx hitContext) {
 	m.hits = m.hits[:0]
+
+	// 顶部标题：任何情况下点一下都能回到主界面。
+	m.hits = append(m.hits, hitRegion{
+		kind: hitTitle, x: 0, y: 0,
+		w: ctx.iconW + 1 + components.Width(m.txt.AppTitle), h: 1,
+	})
+
+	// 帮助页顶部的返回按钮（等同按下 ?）。
+	if ctx.showHelp {
+		m.hits = append(m.hits, hitRegion{
+			kind:  hitBinding,
+			x:     boxInnerX + ctx.helpBack.start,
+			y:     bodyTop + 1 + ctx.helpBack.line,
+			w:     ctx.helpBack.width,
+			h:     1,
+			click: "?",
+		})
+	}
 
 	// 右上角徽章（第 0 行，右对齐）。标题太挤时 Header 会隐藏右侧，这里同步跳过。
 	if leftW := ctx.iconW + 1 + components.Width(m.txt.AppTitle); ctx.width-leftW-1 >= 8 &&
@@ -1286,15 +1335,38 @@ func (m *Model) taskLines(inner, rows int) []string {
 	return lines
 }
 
-func (m *Model) helpLines() []string {
+// helpBack 是帮助页「返回」按钮在内容区中的位置（行号相对内容区首行）。
+type helpBack struct {
+	line, start, width int
+}
+
+// helpLines 渲染帮助页内容，并给出返回按钮的位置。
+// 返回按钮放在最上方：帮助页最容易让人迷路，出口要给得显眼。
+func (m *Model) helpLines() ([]string, helpBack) {
 	st := theme.S()
 	entries := m.txt.HelpEntries
-	lines := make([]string, 0, len(entries)+3)
-	for _, e := range entries {
+
+	lines := make([]string, 0, len(entries)+6)
+	lines = append(lines, "")
+
+	key := " ? "
+	lines = append(lines, "   "+st.Key.Render(key)+"  "+m.txt.HelpBack)
+	back := helpBack{
+		line:  len(lines) - 1,
+		start: 3,
+		width: 3 + components.Width(key) + 2 + components.Width(m.txt.HelpBack),
+	}
+	lines = append(lines, "")
+
+	for i, e := range entries {
 		// 按键用普通白字，不加底色：帮助页是逐条阅读的，块状高亮只会显得吵。
 		lines = append(lines, "  "+st.Base.Render(components.Pad(e[0], 14))+"  "+st.KeyDesc.Render(e[1]))
+		if i == 0 {
+			// 把「关闭帮助」与其余快捷键隔开，避免看成一整片。
+			lines = append(lines, "")
+		}
 	}
 	lines = append(lines, "")
 	lines = append(lines, st.Faint.Render("  "+m.txt.HelpCancelNote))
-	return lines
+	return lines, back
 }

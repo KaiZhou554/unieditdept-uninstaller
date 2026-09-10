@@ -248,6 +248,121 @@ func TestHeaderShowsGitHub(t *testing.T) {
 	}
 }
 
+// findTopmost 返回满足条件的、位置最靠上的命中区域。
+func findTopmost(m *Model, pred func(hitRegion) bool) (hitRegion, bool) {
+	var best hitRegion
+	found := false
+	for _, r := range m.hits {
+		if !pred(r) {
+			continue
+		}
+		if !found || r.y < best.y || (r.y == best.y && r.x < best.x) {
+			best, found = r, true
+		}
+	}
+	return best, found
+}
+
+// TestHelpBackButton 校验帮助页顶部的返回按钮能关闭帮助。
+func TestHelpBackButton(t *testing.T) {
+	setupData(t)
+	m := ready(t)
+
+	m, _ = press(m, "?")
+	m.render()
+	if !m.showHelp {
+		t.Fatal("按 ? 应打开帮助")
+	}
+
+	back, ok := findTopmost(m, func(r hitRegion) bool {
+		return r.kind == hitBinding && r.click == "?"
+	})
+	if !ok {
+		t.Fatal("帮助页应有可点击的返回入口")
+	}
+	if back.y >= m.h-1 {
+		t.Errorf("返回按钮应在内容区顶部而不是底栏，实际 y=%d", back.y)
+	}
+
+	m, _ = clickHit(t, m, back)
+	if m.showHelp {
+		t.Error("单击返回后应关闭帮助")
+	}
+}
+
+// TestHelpListLayout 校验「?」排在快捷键最前，且其后空一行。
+func TestHelpListLayout(t *testing.T) {
+	setupData(t)
+	m := ready(t)
+
+	if got := m.txt.HelpEntries[0][0]; got != "?" {
+		t.Fatalf("「?」应当是第一条快捷键，实际 %q", got)
+	}
+	lines, back := m.helpLines()
+	if back.line != 1 {
+		t.Errorf("返回按钮应在内容区第 1 行，实际 %d", back.line)
+	}
+	plain := func(i int) string {
+		if i >= len(lines) {
+			t.Fatalf("帮助内容只有 %d 行，缺少第 %d 行", len(lines), i)
+		}
+		return components.StripANSI(lines[i])
+	}
+	if !strings.Contains(plain(3), "?") {
+		t.Errorf("第 3 行应为「?」条目，实际 %q", plain(3))
+	}
+	if plain(4) != "" {
+		t.Errorf("「?」条目之后应空一行，实际 %q", plain(4))
+	}
+}
+
+// TestClickTitleGoesHome 校验任何状态下单击顶部标题都回到主界面。
+func TestClickTitleGoesHome(t *testing.T) {
+	setupData(t)
+	m := ready(t)
+
+	title, ok := findHit(m, hitTitle, nil)
+	if !ok {
+		t.Fatal("应存在标题命中区域")
+	}
+
+	// 帮助页 → 主界面
+	m, _ = press(m, "?")
+	m.render()
+	m, _ = clickHit(t, m, title)
+	if m.showHelp {
+		t.Error("在帮助页点击标题应关闭帮助")
+	}
+
+	// 待确认 → 取消
+	m, _ = press(m, " ")
+	m, _ = press(m, "d")
+	m.render()
+	if m.phase != phaseConfirm {
+		t.Fatalf("应进入待确认，实际 phase=%d", m.phase)
+	}
+	m, _ = clickHit(t, m, title)
+	if m.phase != phaseIdle {
+		t.Errorf("待确认时点击标题应取消，实际 phase=%d", m.phase)
+	}
+
+	// 卸载结果 → 回到空闲展示
+	m.phase = phaseDone
+	m.render()
+	m, _ = clickHit(t, m, title)
+	if m.phase != phaseIdle {
+		t.Errorf("结果页点击标题应回到空闲，实际 phase=%d", m.phase)
+	}
+
+	// 卸载进行中不打断
+	m.phase = phaseDelete
+	m.render()
+	m, _ = clickHit(t, m, title)
+	if m.phase != phaseDelete {
+		t.Errorf("卸载进行中不应被标题点击打断，实际 phase=%d", m.phase)
+	}
+}
+
 // TestMouseClicksAreInBounds 校验所有命中区域都落在终端范围内，且不重叠。
 func TestMouseClicksAreInBounds(t *testing.T) {
 	setupData(t)

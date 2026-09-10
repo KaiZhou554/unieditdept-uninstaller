@@ -70,8 +70,11 @@ var zhStrings = &Strings{
 	SortName: "名称",
 	SortDate: "日期",
 
+	HelpBack:       "返回",
 	HelpCancelNote: "待确认状态下按其它任意键即取消，超时也会自动取消。",
+	// 「?」必须放在第一条：它是帮助页的出口，找不到出口最让人困惑。
 	HelpEntries: [][2]string{
+		{"?", "关闭本帮助，回到主界面"},
 		{"↑ / ↓ · k / j", "上下移动光标"},
 		{"PgUp / PgDn", "翻页"},
 		{"Home / End", "跳到首项 / 末项"},
@@ -83,7 +86,6 @@ var zhStrings = &Strings{
 		{"D", "卸载：进入待确认，再按一次 D 执行"},
 		{"L", "切换界面语言"},
 		{"R", "重新扫描"},
-		{"?", "显示或隐藏本帮助"},
 		{"Q / Ctrl+C", "退出程序"},
 	},
 }

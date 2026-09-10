@@ -138,6 +138,7 @@ type Strings struct {
 	SortDate string
 
 	// 帮助页
+	HelpBack       string
 	HelpCancelNote string
 	HelpEntries    [][2]string
 }
