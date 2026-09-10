@@ -904,8 +904,7 @@ func (m *Model) renderTask(width, height int) string {
 		add(" " + st.Danger.Render("待确认"))
 		add("")
 		add(" " + st.Base.Render(core.HumanCount(core.SelectedCount(m.items))+" 个软件"))
-		add(" " + st.Muted.Render(core.HumanCount(core.SelectedInstalls(m.items))+" 个目录"))
-		add(" " + st.Subtle.Render(core.HumanSize(core.SelectedSize(m.items))))
+		add(" " + st.Muted.Render("预计释放 ") + st.Subtle.Render(core.HumanSize(core.SelectedSize(m.items))))
 		add("")
 		add(" " + st.Warn.Render(strconv.Itoa(m.confirmTTL/ui.FrameRate+1)+" 秒后自动取消"))
 
@@ -963,9 +962,9 @@ func (m *Model) renderTask(width, height int) string {
 			break
 		}
 		add(" " + st.Strong.Render(core.HumanCount(count)+" 个软件"))
-		add("")
-		add(" " + st.Muted.Render("涉及目录 ") + st.Base.Render(core.HumanCount(core.SelectedInstalls(m.items))+" 个"))
 		add(" " + st.Muted.Render("预计释放 ") + st.Subtle.Render(core.HumanSize(core.SelectedSize(m.items))))
+		add("")
+		add(" " + st.Faint.Render("按 D 卸载"))
 	}
 
 	if len(lines) > rows {

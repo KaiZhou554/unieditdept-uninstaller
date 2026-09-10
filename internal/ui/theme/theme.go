@@ -29,6 +29,9 @@ var (
 	TextDim   = lipgloss.Color("#c497a9")
 	TextFaint = lipgloss.Color("#7d5668")
 
+	// Neutral 是低饱和的中性灰，用于不抢注意力的次要信息（如右下角版本号）。
+	Neutral = lipgloss.Color("#68626d")
+
 	OK     = lipgloss.Color("#7ce0b0")
 	Warn   = lipgloss.Color("#ffc46b")
 	Danger = lipgloss.Color("#ff5d73")
@@ -46,6 +49,7 @@ type Styles struct {
 	Subtle  lipgloss.Style
 	Muted   lipgloss.Style
 	Faint   lipgloss.Style
+	Neutral lipgloss.Style
 	Accent  lipgloss.Style
 	Strong  lipgloss.Style
 	Danger  lipgloss.Style
@@ -72,6 +76,7 @@ var styles = sync.OnceValue(func() *Styles {
 		Subtle:  lipgloss.NewStyle().Foreground(PrimarySoft),
 		Muted:   lipgloss.NewStyle().Foreground(TextDim),
 		Faint:   lipgloss.NewStyle().Foreground(TextFaint),
+		Neutral: lipgloss.NewStyle().Foreground(Neutral),
 		Accent:  lipgloss.NewStyle().Foreground(Primary),
 		Strong:  lipgloss.NewStyle().Foreground(PrimaryPale).Bold(true),
 		Danger:  lipgloss.NewStyle().Foreground(Danger).Bold(true),

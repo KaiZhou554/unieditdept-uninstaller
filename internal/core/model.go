@@ -186,14 +186,3 @@ func SelectedCount(items []Software) int {
 	}
 	return n
 }
-
-// SelectedInstalls 返回已选中软件的安装目录数量。
-func SelectedInstalls(items []Software) int {
-	var n int
-	for _, it := range items {
-		if it.Selected {
-			n += len(it.Installs)
-		}
-	}
-	return n
-}

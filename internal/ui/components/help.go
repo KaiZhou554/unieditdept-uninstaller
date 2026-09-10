@@ -109,5 +109,6 @@ func Footer(left, right string, w int) string {
 	if gap < 1 {
 		gap = 1
 	}
-	return left + strings.Repeat(" ", gap) + st.Muted.Render(right)
+	// 右侧通常是版本号一类的次要信息，用中性灰，不抢注意力。
+	return left + strings.Repeat(" ", gap) + st.Neutral.Render(right)
 }
