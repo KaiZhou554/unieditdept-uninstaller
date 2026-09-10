@@ -227,9 +227,21 @@ func TestFooterKeepsFirstBinding(t *testing.T) {
 		if !strings.Contains(footer, "↑/↓") {
 			t.Errorf("宽度 %d 下底部提示不完整，实际：%q", w, footer)
 		}
-		// 右下角固定显示版本号。
-		if !strings.Contains(footer, version.String()) {
-			t.Errorf("宽度 %d 下应显示版本号 %s，实际：%q", w, version.String(), footer)
+		// 版本号已移到标题栏，底栏应彻底让给快捷键提示。
+		if strings.Contains(footer, version.String()) {
+			t.Errorf("宽度 %d 下版本号不应占用底栏，实际：%q", w, footer)
+		}
+		// 标题栏足够宽时，版本号应出现在 GitHub 入口左侧。
+		if w < 80 {
+			continue
+		}
+		header := components.StripANSI(lines[0])
+		idxVer := strings.Index(header, version.String())
+		idxGH := strings.Index(header, "GitHub")
+		if idxVer < 0 || idxGH < 0 {
+			t.Errorf("宽度 %d 下标题栏应同时含版本号与 GitHub 入口，实际：%q", w, header)
+		} else if idxVer > idxGH {
+			t.Errorf("宽度 %d 下版本号应在 GitHub 左侧，实际：%q", w, header)
 		}
 	}
 }

@@ -773,10 +773,10 @@ func (m *Model) View() string {
 	rule := ascii.Rule(width, m.tick)
 	header := components.Header(icon, m.txt.AppTitle, rightText, width, rule)
 
-	right := m.footerRight()
 	bindings := m.bindings()
-	left, spans := components.Help(bindings, m.tick, width-components.Width(right)-2)
-	footer := components.Footer(left, right, width)
+	// 版本号已移到顶部标题栏，底栏整行留给快捷键提示。
+	left, spans := components.Help(bindings, m.tick, width)
+	footer := components.Footer(left, "", width)
 
 	bodyHeight := height - 5
 	if bodyHeight < 5 {
@@ -940,12 +940,8 @@ func (m *Model) taskTitle() string {
 	}
 }
 
-// footerRight 固定显示版本号（构建日期）。
-// 已选数量与体积由右侧任务面板承担，不必在底部重复。
-func (m *Model) footerRight() string { return version.String() }
-
-// headerRight 渲染右上角内容：GitHub 入口 + 语言切换提示。
-// 形如：GitHub   L 简体中文 | English
+// headerRight 渲染右上角内容：版本号 + GitHub 入口 + 语言切换提示。
+// 形如：260910   GitHub   L 简体中文 | English
 //
 // 语言部分采用中性灰的「小徽章」样式：L 键提示与当前语言都带底色（当前语言底色略亮），
 // 未选中的语言不带底色。同时返回各枚徽章的位置，供鼠标点击命中。
@@ -961,6 +957,9 @@ func (m *Model) headerRight() (string, []headerHit) {
 		col += w
 		return w
 	}
+
+	// 版本号（构建日期）：中性灰，与右侧其余元素同一调性，不抢注意力。
+	write(st.Neutral.Render(version.String()) + "   ")
 
 	// GitHub 入口：与未选中的语言同色，带下划线暗示可点击。
 	gh := st.ChipOff.Underline(true).Render(m.txt.LinkGitHub)
