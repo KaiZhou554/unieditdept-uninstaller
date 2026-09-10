@@ -252,7 +252,8 @@ func TestRescanKeepsTerminalSize(t *testing.T) {
 	if len(lines) != 30 {
 		t.Errorf("重扫后渲染高度应为 30，实际 %d", len(lines))
 	}
-	if got := components.Width(lines[0]); got != 120 {
+	// 分隔线行必定铺满整宽，用它来校验宽度。
+	if got := components.Width(lines[1]); got != 120 {
 		t.Errorf("重扫后渲染宽度应为 120，实际 %d", got)
 	}
 }
@@ -273,8 +274,8 @@ func TestHomeConfirmCancel(t *testing.T) {
 	// 进入列表后未做选择 → 按 D 会自动选中光标项 → 取消后应恢复为未选中。
 	screen, _ = press(screen, "d")
 	view := strings.Join(render(screen, 100, 30), "\n")
-	if !strings.Contains(view, "再次按 D 确认") {
-		t.Error("待确认状态下应出现“再次按 D 确认”提示")
+	if !strings.Contains(view, "待确认") {
+		t.Error("待确认状态下应出现“待确认”提示")
 	}
 	screen, _ = press(screen, "x")
 	view = strings.Join(render(screen, 100, 30), "\n")
@@ -307,7 +308,7 @@ func TestHomeConfirmPreservesUserSelection(t *testing.T) {
 
 	screen, _ = press(screen, "d") // 待确认
 	view = strings.Join(render(screen, 100, 30), "\n")
-	if !strings.Contains(view, "再次按 D 确认") {
+	if !strings.Contains(view, "待确认") {
 		t.Errorf("应进入待确认\n%s", view)
 	}
 	if !strings.Contains(view, "2 项") {

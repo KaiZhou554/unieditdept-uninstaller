@@ -22,61 +22,12 @@ func Spinner(tick int) string {
 	return lipgloss.NewStyle().Foreground(theme.Primary).Bold(true).Render(frame)
 }
 
-// waveRunes 是波形条的字符集。
-var waveRunes = []rune("▁▂▃▄▅▆▇█▇▆▅▄▃▂")
-
-// Wave 返回一行流动的波形。
-func Wave(width, tick int) string {
-	if width <= 0 {
-		return ""
-	}
-	var sb strings.Builder
-	for x := 0; x < width; x++ {
-		v := math.Sin(float64(x)*0.35 - float64(tick)*0.25)
-		idx := int(math.Round((v*0.5 + 0.5) * float64(len(waveRunes)-1)))
-		if idx < 0 {
-			idx = 0
-		}
-		if idx >= len(waveRunes) {
-			idx = len(waveRunes) - 1
-		}
-		sb.WriteRune(waveRunes[idx])
-	}
-	return Gradient(sb.String(), -tick*2)
-}
-
 // Rule 返回一条带流光的分隔线。
 func Rule(width, tick int) string {
 	if width <= 0 {
 		return ""
 	}
 	return Gradient(strings.Repeat("─", width), -tick)
-}
-
-// Sparkles 生成一行缓慢闪烁的星点，用于营造氛围。
-func Sparkles(width, tick int) string {
-	if width <= 0 {
-		return ""
-	}
-	dim := lipgloss.NewStyle().Foreground(theme.PrimaryDark)
-	bright := lipgloss.NewStyle().Foreground(theme.Primary)
-	phase := tick / 8
-	var sb strings.Builder
-	for x := 0; x < width; x++ {
-		switch h := (x*31 + phase*17) % 23; {
-		case h == 0:
-			sb.WriteString(bright.Render("✦"))
-		case h == 1:
-			sb.WriteString(lipgloss.NewStyle().Foreground(theme.PrimarySoft).Render("✧"))
-		case h < 5:
-			sb.WriteString(lipgloss.NewStyle().Foreground(theme.PrimaryDeep).Render("•"))
-		case h < 9:
-			sb.WriteString(dim.Render("∙"))
-		default:
-			sb.WriteRune(' ')
-		}
-	}
-	return sb.String()
 }
 
 // Dissolve 表现「正在擦除」的效果：左侧被替换为暗色块，光标处高亮。

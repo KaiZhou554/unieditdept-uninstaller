@@ -47,13 +47,12 @@ type taskItem struct {
 
 // deleteState 保存卸载任务的进度。
 type deleteState struct {
-	items   []taskItem
-	done    int
-	total   int
-	freed   int64
-	shown   int64
-	current string
-	result  core.DeleteResult
+	items  []taskItem
+	done   int
+	total  int
+	freed  int64
+	shown  int64
+	result core.DeleteResult
 }
 
 // Model 是主屏幕。
@@ -256,7 +255,6 @@ func (m *Model) handleEvent(ev core.Event) (ui.Screen, tea.Cmd) {
 
 	case core.ItemDeleted:
 		m.del.done = ev.Done
-		m.del.current = ev.Path
 		if idx := ev.Done - 1; idx >= 0 && idx < len(m.del.items) {
 			m.del.items[idx].err = ev.Err
 		}
@@ -608,7 +606,7 @@ func (m *Model) View() string {
 	}
 
 	rule := ascii.Rule(width, m.tick)
-	header := components.Header("UNIEDITDEPT 卸载程序", m.headerRight(), width, rule)
+	header := components.Header("UNIEDITDEPT 卸载程序", "", width, rule)
 	right := m.footerRight()
 	footer := components.Footer(m.footerLeft(width, components.Width(right)), right, width)
 
@@ -676,29 +674,13 @@ func (m *Model) taskTitle() string {
 	}
 }
 
-func (m *Model) headerRight() string {
-	if !m.loaded {
-		return "正在读取软件列表…"
-	}
-	if m.phase == phaseScan {
-		return "已统计 " + core.HumanCount(m.scanDone) + "/" + core.HumanCount(m.scanTotal) +
-			" · " + core.HumanSize(m.scanBytes)
-	}
-	return "共 " + core.HumanCount(len(m.items)) + " 个软件 · " + core.HumanSize(core.TotalSize(m.items))
-}
-
+// footerRight 只在空闲态显示选择摘要；其余阶段的详情都由右侧任务面板承担。
 func (m *Model) footerRight() string {
-	switch m.phase {
-	case phaseConfirm:
-		return "再次按 D 确认 · " + strconv.Itoa(m.confirmTTL/ui.FrameRate+1) + " 秒后自动取消"
-	case phaseDelete:
-		return "正在卸载 " + core.HumanCount(m.del.done) + "/" + core.HumanCount(m.del.total)
-	case phaseDone:
-		return "释放 " + core.HumanSize(m.del.result.Freed)
-	default:
-		return "已选 " + core.HumanCount(core.SelectedCount(m.items)) + " 项 · " +
-			core.HumanSize(core.SelectedSize(m.items))
+	if m.phase != phaseIdle && m.phase != phaseScan {
+		return ""
 	}
+	return "已选 " + core.HumanCount(core.SelectedCount(m.items)) + " 项 · " +
+		core.HumanSize(core.SelectedSize(m.items))
 }
 
 // footerLeft 渲染底部左侧内容。reserved 是右侧统计信息已占用的宽度。
@@ -725,6 +707,12 @@ func (m *Model) bindings() []components.Binding {
 		}
 	case m.phase == phaseDelete:
 		return []components.Binding{{Keys: []string{"ctrl+c"}, Desc: "中断"}}
+	case m.phase == phaseDone:
+		// 卸载已完成，列表可能已空，只留仍然有意义的两个键。
+		return []components.Binding{
+			{Keys: []string{"r"}, Desc: "重扫"},
+			{Keys: []string{"q"}, Desc: "退出"},
+		}
 	}
 
 	// 按重要程度排列，放不下时从末尾开始舍弃。
@@ -743,32 +731,25 @@ func (m *Model) bindings() []components.Binding {
 }
 
 // rowLayout 描述列表各列的宽度分配。
-// 名称列可伸缩，占用与日期列为固定宽度，空间不足时优先舍弃修改日期。
+// 名称列可伸缩，占用与创建日期列为固定宽度，空间不足时依次缩短、舍弃日期列。
 type rowLayout struct {
 	nameW      int
 	sizeW      int
 	dateW      int
 	dateLayout string
-	showMod    bool
 }
 
 func (m *Model) rowLayout(width int) rowLayout {
 	l := rowLayout{sizeW: 8, dateW: 10, dateLayout: "2006-01-02"}
-	// 空间不足时依次降级：去掉修改日期 → 缩短日期 → 不显示日期。
 	switch {
-	case width >= 56:
-		l.showMod = true
-	case width >= 42:
-	case width >= 34:
+	case width >= 40:
+	case width >= 32:
 		l.dateW, l.dateLayout = 8, "06-01-02"
 	default:
 		l.dateW, l.dateLayout = 0, ""
 	}
 	reserved := 2 + 4 + 1 + l.sizeW // 光标 + 选择框 + 间隔 + 占用
 	if l.dateW > 0 {
-		reserved += 1 + l.dateW
-	}
-	if l.showMod {
 		reserved += 1 + l.dateW
 	}
 	l.nameW = width - reserved
@@ -817,13 +798,10 @@ func (m *Model) renderHeader(width int) string {
 	if l.dateW > 0 {
 		sb.WriteString(" " + faint(components.PadLeft("创建日期", l.dateW)))
 	}
-	if l.showMod {
-		sb.WriteString(" " + faint(components.PadLeft("修改日期", l.dateW)))
-	}
 	return components.Fit(components.StripANSI(sb.String()), width)
 }
 
-// renderRow 渲染一行软件：选择框、名称、占用、创建日期、修改日期。
+// renderRow 渲染一行软件：选择框、名称、占用、创建日期。
 func (m *Model) renderRow(sw core.Software, active bool, width int) string {
 	st := theme.S()
 	l := m.rowLayout(width)
@@ -850,9 +828,6 @@ func (m *Model) renderRow(sw core.Software, active bool, width int) string {
 	}
 	if l.dateW > 0 {
 		sb.WriteString(" " + m.dateText(sw.Created(), l))
-	}
-	if l.showMod {
-		sb.WriteString(" " + m.dateText(sw.ModTime(), l))
 	}
 
 	plain := components.Fit(components.StripANSI(sb.String()), width)
@@ -892,32 +867,23 @@ func (m *Model) dateText(t time.Time, l rowLayout) string {
 	return st.Muted.Render(components.PadLeft(t.Format(l.dateLayout), l.dateW))
 }
 
+// emptyState 渲染列表的空状态，只保留一句说明。
 func (m *Model) emptyState(width int) string {
 	st := theme.S()
-	lines := []string{""}
+	text := "没有发现任何软件"
 	switch {
 	case !m.loaded:
-		lines = append(lines, components.Center(st.Subtle.Render("正在读取软件列表…"), width))
+		text = "正在读取软件列表…"
 	case len(m.items) == 0 && m.phase == phaseDone:
-		lines = append(lines, components.Center(st.Subtle.Render("选中的软件已全部卸载"), width))
-		lines = append(lines, "")
-		lines = append(lines, components.Center(st.Muted.Render("按 R 重新扫描"), width))
-	case len(m.items) == 0:
-		lines = append(lines, components.Center(st.Subtle.Render("没有发现任何软件"), width))
-		lines = append(lines, "")
-		lines = append(lines, components.Center(
-			st.Muted.Render("三个位置下都没有 "+m.cfg.Namespace+" 目录"), width))
-		lines = append(lines, "")
-		lines = append(lines, components.Center(st.Faint.Render("R 重新扫描 · Q 退出"), width))
-	default:
-		lines = append(lines, components.Center(st.Subtle.Render("没有匹配 “"+m.filter+"” 的软件"), width))
-		lines = append(lines, "")
-		lines = append(lines, components.Center(st.Faint.Render("Esc 清空过滤条件"), width))
+		text = "已全部卸载"
+	case len(m.items) > 0:
+		text = "没有匹配 “" + m.filter + "” 的软件"
 	}
-	return strings.Join(lines, "\n")
+	return "\n\n" + components.Center(st.Subtle.Render(text), width)
 }
 
 // renderTask 渲染右侧任务面板。
+// 只保留当前阶段真正有用的信息：操作提示交给底部状态栏，动画仅用于表达「进行中」。
 func (m *Model) renderTask(width, height int) string {
 	inner := width - 4
 	rows := height - 2
@@ -933,32 +899,24 @@ func (m *Model) renderTask(width, height int) string {
 			ratio = float64(m.scanDone) / float64(m.scanTotal)
 		}
 		add(" " + ascii.Spinner(m.tick) + " " + st.Strong.Render("正在统计占用"))
-		add(" " + ascii.Wave(inner-2, m.tick))
 		add("")
 		add(" " + components.Bar(inner-2, ratio, m.tick))
 		add(" " + st.Muted.Render(core.HumanCount(m.scanDone)+" / "+core.HumanCount(m.scanTotal)+" 个目录"))
-		add("")
 		add(" " + st.Faint.Render("已统计 "+core.HumanSize(m.scanBytes)))
-		add("")
-		add(" " + st.Faint.Render(components.Truncate("列表可正常操作，占用会", inner-2, "")))
-		add(" " + st.Faint.Render(components.Truncate("逐个回填。", inner-2, "")))
 
 	case phaseConfirm:
-		count := core.SelectedCount(m.items)
 		blink := (m.tick/4)%2 == 0
 		style := st.FlashB
 		if blink {
 			style = st.FlashA
 		}
-		add(" " + st.Danger.Render("▲ 再次按 D 确认"))
+		add(" " + st.Danger.Render("待确认"))
 		add("")
-		add(" " + st.Base.Render("待卸载 "+core.HumanCount(count)+" 个软件"))
-		add(" " + st.Muted.Render("涉及 "+core.HumanCount(core.SelectedInstalls(m.items))+" 个目录"))
+		add(" " + st.Base.Render(core.HumanCount(core.SelectedCount(m.items))+" 个软件"))
+		add(" " + st.Muted.Render(core.HumanCount(core.SelectedInstalls(m.items))+" 个目录"))
 		add(" " + st.Subtle.Render(core.HumanSize(core.SelectedSize(m.items))))
 		add("")
 		add(" " + style.Render(" "+strconv.Itoa(m.confirmTTL/ui.FrameRate+1)+" 秒后自动取消 "))
-		add("")
-		add(" " + st.Faint.Render("按其它任意键取消"))
 
 	case phaseDelete:
 		ratio := 0.0
@@ -969,13 +927,11 @@ func (m *Model) renderTask(width, height int) string {
 		if m.cfg.DryRun {
 			verb = "正在演练"
 		}
-		add(" " + ascii.Spinner(m.tick) + " " + st.Strong.Render(verb) + " " +
-			st.Muted.Render(core.HumanCount(m.del.done)+"/"+core.HumanCount(m.del.total)))
+		add(" " + ascii.Spinner(m.tick) + " " + st.Strong.Render(verb))
 		add("")
 		add(" " + components.Bar(inner-2, ratio, m.tick))
-		add(" " + st.Muted.Render("已释放 ") + st.Subtle.Render(core.HumanSize(m.del.shown)))
-		add("")
-		add(" " + st.Faint.Render(components.Truncate(m.del.current, inner-2, "…")))
+		add(" " + st.Muted.Render(core.HumanCount(m.del.done)+" / "+core.HumanCount(m.del.total)+" 个目录"))
+		add(" " + st.Faint.Render("已释放 "+core.HumanSize(m.del.shown)))
 		add("")
 		lines = append(lines, m.taskLines(inner, rows-len(lines))...)
 
@@ -986,13 +942,12 @@ func (m *Model) renderTask(width, height int) string {
 			headline = "✓ 演练完成"
 		}
 		if len(res.Failures) > 0 {
-			headline = "! 卸载完成（有失败项）"
+			headline = "! 存在失败项"
 		}
 		add(" " + st.OK.Render(headline))
-		add(" " + ascii.Sparkles(inner-2, m.tick))
 		add("")
-		add(" " + st.Muted.Render("删除目录 ") + st.Base.Render(core.HumanCount(res.Deleted)+" 个"))
-		add(" " + st.Muted.Render("释放空间 ") + st.Subtle.Render(core.HumanSize(res.Freed)))
+		add(" " + st.Muted.Render("删除 ") + st.Base.Render(core.HumanCount(res.Deleted)+" 个目录"))
+		add(" " + st.Muted.Render("释放 ") + st.Subtle.Render(core.HumanSize(res.Freed)))
 		add(" " + st.Muted.Render("耗时 ") + st.Base.Render(res.Elapsed.Round(time.Millisecond).String()))
 		if len(res.Pruned) > 0 {
 			add(" " + st.Faint.Render("清理空目录 "+core.HumanCount(len(res.Pruned))+" 个"))
@@ -1008,35 +963,18 @@ func (m *Model) renderTask(width, height int) string {
 				add(" " + st.Base.Render(components.Truncate(f.Name, inner-4, "…")))
 				add("   " + st.Faint.Render(components.Truncate(f.Err.Error(), inner-5, "…")))
 			}
-			add("")
-			add(" " + st.Muted.Render(components.Truncate("文件被占用时会失败，关闭", inner-2, "")))
-			add(" " + st.Muted.Render(components.Truncate("程序后可重试。", inner-2, "")))
-		} else {
-			add("")
-			add(" " + st.Faint.Render("按 R 重新扫描"))
 		}
 
 	default:
+		// 未选择软件时面板留白；有选择时只给出这次卸载的关键数字。
 		count := core.SelectedCount(m.items)
 		if count == 0 {
-			add(" " + st.Muted.Render("未选择软件"))
-			add(" " + ascii.Wave(inner-2, m.tick))
-			add("")
-			add(" " + st.Faint.Render("Space 选择 · A 全选"))
-			add(" " + st.Faint.Render("D 卸载"))
-			add("")
-			add("")
-			add(" " + st.Faint.Render(components.Truncate("删除会同时清理三个", inner-2, "")))
-			add(" " + st.Faint.Render(components.Truncate("位置下的同名目录。", inner-2, "")))
 			break
 		}
-		add(" " + st.Strong.Render("待卸载 "+core.HumanCount(count)+" 个软件"))
+		add(" " + st.Strong.Render(core.HumanCount(count)+" 个软件"))
 		add("")
 		add(" " + st.Muted.Render("涉及目录 ") + st.Base.Render(core.HumanCount(core.SelectedInstalls(m.items))+" 个"))
 		add(" " + st.Muted.Render("预计释放 ") + st.Subtle.Render(core.HumanSize(core.SelectedSize(m.items))))
-		add("")
-		add("")
-		add(" " + st.Faint.Render("按 D 卸载"))
 	}
 
 	if len(lines) > rows {
@@ -1111,9 +1049,8 @@ func (m *Model) helpLines() []string {
 		{"?", "显示或隐藏本帮助"},
 		{"Q / Ctrl+C", "退出程序"},
 	}
-	lines := make([]string, 0, len(groups)+5)
-	lines = append(lines, st.Subtle.Render("创建日期：三个位置中最早创建的目录；修改日期：最近一次写入"))
-	lines = append(lines, st.Muted.Render("窗口较窄时会依次省略修改日期与创建日期"))
+	lines := make([]string, 0, len(groups)+4)
+	lines = append(lines, st.Subtle.Render("创建日期为三个位置中最早创建的那个目录"))
 	lines = append(lines, "")
 	for _, g := range groups {
 		lines = append(lines, "  "+st.Key.Render(g[0])+"  "+st.KeyDesc.Render(g[1]))
