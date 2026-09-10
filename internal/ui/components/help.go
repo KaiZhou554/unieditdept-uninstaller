@@ -84,12 +84,14 @@ func Help(bindings []Binding, tick, maxWidth int) string {
 }
 
 // Header 渲染顶部标题栏。
-// right 需自带样式（调用方决定配色）；超宽时会做 ANSI 安全的裁剪，保证整行不超过 w。
-func Header(title, right string, w int, rule string) string {
+//
+// icon 是标题前的装饰符号（需自带样式），title 会套用标题样式。
+// right 同样需自带样式；超宽时会做 ANSI 安全的裁剪，保证整行不超过 w。
+func Header(icon, title, right string, w int, rule string) string {
 	st := theme.S()
-	leftPlain := "◆ " + title
+	leftW := Width(icon) + 1 + Width(title)
 	if right != "" {
-		maxRight := w - Width(leftPlain) - 1
+		maxRight := w - leftW - 1
 		if maxRight < 8 {
 			right = "" // 放不下就不显示，好过把标题挤掉
 		} else if Width(right) > maxRight {
@@ -97,9 +99,9 @@ func Header(title, right string, w int, rule string) string {
 		}
 	}
 
-	line := st.Accent.Bold(true).Render("◆ ") + st.Title.Render(title)
+	line := icon + " " + st.Title.Render(title)
 	if right != "" {
-		gap := w - Width(leftPlain) - Width(right)
+		gap := w - leftW - Width(right)
 		if gap < 1 {
 			gap = 1
 		}

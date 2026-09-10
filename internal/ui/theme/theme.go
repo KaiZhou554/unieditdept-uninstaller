@@ -32,6 +32,13 @@ var (
 	// Neutral 是低饱和的中性灰，用于不抢注意力的次要信息（如右下角版本号）。
 	Neutral = lipgloss.Color("#68626d")
 
+	// 右上角语言切换器用的中性点缀色（小徽章）。
+	ChipBg     = lipgloss.Color("#3d3945")
+	ChipInk    = lipgloss.Color("#b6b0be")
+	ChipOnBg   = lipgloss.Color("#57525f")
+	ChipOnInk  = lipgloss.Color("#f2eff5")
+	ChipOffInk = lipgloss.Color("#635d6a")
+
 	OK     = lipgloss.Color("#7ce0b0")
 	Warn   = lipgloss.Color("#ffc46b")
 	Danger = lipgloss.Color("#ff5d73")
@@ -62,6 +69,12 @@ type Styles struct {
 	Row     lipgloss.Style
 	RowSel  lipgloss.Style
 	Logo    lipgloss.Style
+
+	// Chip / ChipOn / ChipOff 用于右上角语言切换器这类小徽章。
+	// Chip 是按键提示，ChipOn 是当前选项（都带底色），ChipOff 是未选中的选项。
+	Chip    lipgloss.Style
+	ChipOn  lipgloss.Style
+	ChipOff lipgloss.Style
 }
 
 var styles = sync.OnceValue(func() *Styles {
@@ -91,6 +104,10 @@ var styles = sync.OnceValue(func() *Styles {
 		Row:     lipgloss.NewStyle().Foreground(Text),
 		RowSel:  lipgloss.NewStyle().Foreground(PrimaryPale).Background(PrimaryDeep).Bold(true),
 		Logo:    lipgloss.NewStyle().Foreground(Primary),
+
+		Chip:    lipgloss.NewStyle().Foreground(ChipInk).Background(ChipBg).Bold(true),
+		ChipOn:  lipgloss.NewStyle().Foreground(ChipOnInk).Background(ChipOnBg).Bold(true),
+		ChipOff: lipgloss.NewStyle().Foreground(ChipOffInk),
 	}
 })
 

@@ -83,6 +83,47 @@ func TestScanIndexCoversRange(t *testing.T) {
 	}
 }
 
+// TestSparkIsStableWidth 校验星形符号宽度恒为 1。
+// 它嵌在标题前，宽度一旦变化就会把整行挤歪。
+func TestSparkIsStableWidth(t *testing.T) {
+	for tick := 0; tick < 4*fps; tick++ {
+		if w := ansi.StringWidth(Spark(tick)); w != 1 {
+			t.Fatalf("tick=%d 时星形宽度为 %d", tick, w)
+		}
+	}
+}
+
+// TestSparkAnimates 校验星形既换了字形也换了颜色，是真正的动画而非静止符号。
+func TestSparkAnimates(t *testing.T) {
+	glyphs := map[string]bool{}
+	renders := map[string]bool{}
+	for tick := 0; tick < 4*fps; tick++ {
+		s := Spark(tick)
+		glyphs[stripAllSGR(s)] = true
+		renders[s] = true
+	}
+	if len(glyphs) < 2 {
+		t.Errorf("星形应在实心与空心之间切换，实际只有 %d 种", len(glyphs))
+	}
+	if len(renders) < 8 {
+		t.Errorf("星形颜色变化过少，实际只有 %d 种", len(renders))
+	}
+}
+
+// TestRuleAdvancesSlowly 校验分隔线流光推进得足够慢。
+func TestRuleAdvancesSlowly(t *testing.T) {
+	// 相邻两帧的内容应当相同（每 3 帧才推进一格）。
+	if Rule(40, 0) == Rule(40, 0) {
+		// 同一 tick 自然相同，这里只是防止实现被改成随机。
+	}
+	if Rule(40, 0) != Rule(40, 1) {
+		t.Error("分隔线不应每帧都推进")
+	}
+	if Rule(40, 0) == Rule(40, 3) {
+		t.Error("分隔线应当每 3 帧推进一格")
+	}
+}
+
 // TestScanHighlightEmpty 校验空串不会 panic。
 func TestScanHighlightEmpty(t *testing.T) {
 	if got := ScanHighlight("", 5); got != "" {

@@ -625,7 +625,7 @@ func (m *Model) View() string {
 	}
 
 	rule := ascii.Rule(width, m.tick)
-	header := components.Header(m.txt.AppTitle, m.langSwitcher(), width, rule)
+	header := components.Header(ascii.Spark(m.tick), m.txt.AppTitle, m.langSwitcher(), width, rule)
 	right := m.footerRight()
 	footer := components.Footer(m.footerLeft(width, components.Width(right)), right, width)
 
@@ -700,22 +700,22 @@ func (m *Model) footerRight() string { return version.String() }
 
 // langSwitcher 渲染右上角的语言切换提示，形如：L 简体中文 | English
 //
-// 三个层次由淡到亮：L 键提示最淡，未选中的语言居中，当前语言最亮，
-// 既能表明「按 L 可切换」，又不会抢走列表的注意力。
+// 采用中性灰的「小徽章」样式：L 键提示与当前语言都带底色（当前语言底色略亮），
+// 未选中的语言不带底色，与底部按键提示的观感一致但整体是中性色。
 func (m *Model) langSwitcher() string {
 	st := theme.S()
 	parts := make([]string, 0, len(i18n.Order)*2)
 	for i, l := range i18n.Order {
 		if i > 0 {
-			parts = append(parts, st.Neutral.Render("|"))
+			parts = append(parts, st.ChipOff.Render("|"))
 		}
-		style := st.Neutral
+		style := st.ChipOff
 		if l == m.lang {
-			style = st.Muted
+			style = st.ChipOn
 		}
-		parts = append(parts, style.Render(l.Label()))
+		parts = append(parts, style.Render(" "+l.Label()+" "))
 	}
-	return st.Faint.Render("L") + " " + strings.Join(parts, " ")
+	return st.Chip.Render(" L ") + " " + strings.Join(parts, " ")
 }
 
 // footerLeft 渲染底部左侧内容。reserved 是右侧统计信息已占用的宽度。

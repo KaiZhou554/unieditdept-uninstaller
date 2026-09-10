@@ -23,11 +23,30 @@ func Spinner(tick int) string {
 }
 
 // Rule 返回一条带流光的分隔线。
+// 每 3 帧才推进一格，比默认的渐变慢，流光更从容。
 func Rule(width, tick int) string {
 	if width <= 0 {
 		return ""
 	}
-	return Gradient(strings.Repeat("─", width), -tick)
+	return Gradient(strings.Repeat("─", width), -tick/3)
+}
+
+// fps 与 ui.FrameRate 保持一致，用于把动画速度写成「秒」。
+const fps = 24
+
+// Spark 返回一枚缓慢呼吸的星，用来代替静态的装饰符号。
+// 星形每 2 秒在实心与空心之间切换，同时颜色在暗粉与亮粉之间平滑往复。
+func Spark(tick int) string {
+	cycle := float64(4 * fps) // 4 秒一个完整周期
+	phase := math.Sin(float64(tick)/cycle*2*math.Pi)*0.5 + 0.5
+	glyph := "✦"
+	if (tick/(2*fps))%2 == 1 {
+		glyph = "✧"
+	}
+	return lipgloss.NewStyle().
+		Foreground(theme.Mix(theme.PrimaryDeep, theme.PrimarySoft, phase)).
+		Bold(true).
+		Render(glyph)
 }
 
 // Dissolve 表现「正在擦除」的效果：左侧被替换为暗色块，光标处高亮。

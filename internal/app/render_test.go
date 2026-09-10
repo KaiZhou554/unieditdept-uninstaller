@@ -307,13 +307,27 @@ func TestLanguageSwitch(t *testing.T) {
 	setupData(t)
 	screen := newScannedHome(t)
 
+	// 切换器形如「L 简体中文 | English」（徽章样式带去色的内层留白）。
+	checkSwitcher := func(name, view string) {
+		t.Helper()
+		zhAt, enAt := strings.Index(view, "简体中文"), strings.Index(view, "English")
+		if zhAt < 0 || enAt < 0 {
+			t.Errorf("%s：右上角应同时展示两种语言:\n%s", name, view)
+			return
+		}
+		if zhAt > enAt {
+			t.Errorf("%s：语言顺序应为「简体中文 | English」", name)
+		}
+		if !strings.Contains(view[:max(zhAt, 0)], "L") {
+			t.Errorf("%s：切换器应带 L 键提示", name)
+		}
+	}
+
 	zh := plainView(screen, 100, 30)
 	if !strings.Contains(zh, "软件（") {
 		t.Fatalf("默认应为中文:\n%s", zh)
 	}
-	if !strings.Contains(zh, "L 简体中文 | English") {
-		t.Errorf("右上角应显示语言切换器:\n%s", zh)
-	}
+	checkSwitcher("默认", zh)
 
 	screen, _ = press(screen, "L")
 	en := plainView(screen, 100, 30)
@@ -323,9 +337,7 @@ func TestLanguageSwitch(t *testing.T) {
 	if strings.Contains(en, "软件（") {
 		t.Errorf("切换后不应残留中文:\n%s", en)
 	}
-	if !strings.Contains(en, "L 简体中文 | English") {
-		t.Errorf("切换器应始终展示两种语言:\n%s", en)
-	}
+	checkSwitcher("英文", en)
 
 	screen, _ = press(screen, "L")
 	if back := plainView(screen, 100, 30); !strings.Contains(back, "软件（") {
