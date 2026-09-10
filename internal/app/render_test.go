@@ -15,6 +15,7 @@ import (
 	"github.com/unieditdept/ued-uninstaller/internal/ui"
 	"github.com/unieditdept/ued-uninstaller/internal/ui/components"
 	"github.com/unieditdept/ued-uninstaller/internal/ui/screens/home"
+	"github.com/unieditdept/ued-uninstaller/internal/version"
 )
 
 // TestMain 强制真彩色：布局与 ANSI 完整性断言只有在真正产生转义序列时才有效。
@@ -100,6 +101,34 @@ func testConfig() config.Config {
 
 func press(s ui.Screen, key string) (ui.Screen, tea.Cmd) {
 	return s.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+}
+
+func pressKey(s ui.Screen, k tea.KeyType) (ui.Screen, tea.Cmd) {
+	return s.Update(tea.KeyMsg{Type: k})
+}
+
+// TestEnterHasNoAction 校验 Enter 不再具备任何含义。
+// 它曾经同时兼任「开始卸载」「确认卸载」「退出」等多种角色，容易误操作。
+func TestEnterHasNoAction(t *testing.T) {
+	setupData(t)
+	screen := newScannedHome(t)
+
+	screen, _ = pressKey(screen, tea.KeyEnter)
+	view := plainView(screen, 100, 30)
+	if strings.Contains(view, "待确认") {
+		t.Error("Enter 不应进入待确认状态")
+	}
+	if strings.Contains(view, "[✓]") {
+		t.Error("Enter 不应选中任何软件")
+	}
+
+	// 进入待确认后按 Enter，应当与「其它任意键」一样取消，而不是执行卸载。
+	screen, _ = press(screen, "d")
+	screen, _ = pressKey(screen, tea.KeyEnter)
+	view = plainView(screen, 100, 30)
+	if !strings.Contains(view, "已取消") {
+		t.Errorf("待确认状态下按 Enter 应视同其它键取消\n%s", view)
+	}
 }
 
 func render(s ui.Screen, w, h int) []string {
@@ -198,8 +227,9 @@ func TestFooterKeepsFirstBinding(t *testing.T) {
 		if !strings.Contains(footer, "↑/↓") {
 			t.Errorf("宽度 %d 下底部提示不完整，实际：%q", w, footer)
 		}
-		if !strings.Contains(footer, "已选 2 项") {
-			t.Errorf("宽度 %d 下底部统计信息不完整，实际：%q", w, footer)
+		// 右下角固定显示版本号。
+		if !strings.Contains(footer, version.String()) {
+			t.Errorf("宽度 %d 下应显示版本号 %s，实际：%q", w, version.String(), footer)
 		}
 	}
 }
@@ -301,7 +331,7 @@ func TestHomeConfirmCancel(t *testing.T) {
 	if footer := components.StripANSI(lines[len(lines)-1]); strings.Contains(footer, "已取消") {
 		t.Errorf("取消提示不应占用底部状态栏：%q", footer)
 	}
-	if !strings.Contains(view, "已选 0 项") {
+	if strings.Contains(view, "[✓]") {
 		t.Errorf("取消后应清空临时选中的项\n%s", view)
 	}
 	for _, dir := range dirs {
@@ -321,8 +351,8 @@ func TestHomeConfirmPreservesUserSelection(t *testing.T) {
 	screen, _ = press(screen, "j")
 	screen, _ = press(screen, " ")
 	view := plainView(screen, 100, 30)
-	if !strings.Contains(view, "已选 2 项") {
-		t.Errorf("手动选中 2 项失败:\n%s", view)
+	if n := strings.Count(view, "[✓]"); n != 2 {
+		t.Errorf("手动选中 2 项失败（实际 %d 项）:\n%s", n, view)
 	}
 
 	screen, _ = press(screen, "d") // 待确认
@@ -339,8 +369,8 @@ func TestHomeConfirmPreservesUserSelection(t *testing.T) {
 	if !strings.Contains(view, "已取消") {
 		t.Errorf("应显示已取消\n%s", view)
 	}
-	if !strings.Contains(view, "已选 2 项") {
-		t.Errorf("用户手动选中的 2 项应保留:\n%s", view)
+	if n := strings.Count(view, "[✓]"); n != 2 {
+		t.Errorf("用户手动选中的 2 项应保留（实际 %d 项）:\n%s", n, view)
 	}
 	for _, dir := range dirs {
 		if _, err := os.Stat(dir); err != nil {

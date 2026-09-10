@@ -19,6 +19,7 @@ import (
 	"github.com/unieditdept/ued-uninstaller/internal/ui/ascii"
 	"github.com/unieditdept/ued-uninstaller/internal/ui/components"
 	"github.com/unieditdept/ued-uninstaller/internal/ui/theme"
+	"github.com/unieditdept/ued-uninstaller/internal/version"
 )
 
 // phase 表示界面当前所处的阶段。
@@ -320,7 +321,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (ui.Screen, tea.Cmd) {
 
 	// 待确认阶段：只有确认键生效，其它任何键都视为取消。
 	if m.phase == phaseConfirm {
-		if key == "enter" || (len(key) == 1 && strings.ContainsRune(confirmKeys, rune(key[0]))) {
+		if len(key) == 1 && strings.ContainsRune(confirmKeys, rune(key[0])) {
 			return m.startDelete()
 		}
 		m.cancelConfirm("已取消卸载")
@@ -366,7 +367,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (ui.Screen, tea.Cmd) {
 		m.showHelp = !m.showHelp
 	case "r", "R":
 		return m, ui.Rescan()
-	case "d", "D", "enter":
+	case "d", "D":
 		m.requestDelete()
 	case "q", "Q", "esc":
 		return m, ui.Quit()
@@ -675,14 +676,9 @@ func (m *Model) taskTitle() string {
 	}
 }
 
-// footerRight 只在空闲态显示选择摘要；其余阶段的详情都由右侧任务面板承担。
-func (m *Model) footerRight() string {
-	if m.phase != phaseIdle && m.phase != phaseScan {
-		return ""
-	}
-	return "已选 " + core.HumanCount(core.SelectedCount(m.items)) + " 项 · " +
-		core.HumanSize(core.SelectedSize(m.items))
-}
+// footerRight 固定显示版本号（构建日期）。
+// 已选数量与体积由右侧任务面板承担，不必在底部重复。
+func (m *Model) footerRight() string { return version.String() }
 
 // footerLeft 渲染底部左侧内容。reserved 是右侧统计信息已占用的宽度。
 func (m *Model) footerLeft(width, reserved int) string {

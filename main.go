@@ -12,10 +12,8 @@ import (
 	"github.com/unieditdept/ued-uninstaller/internal/app"
 	"github.com/unieditdept/ued-uninstaller/internal/config"
 	"github.com/unieditdept/ued-uninstaller/internal/logging"
+	"github.com/unieditdept/ued-uninstaller/internal/version"
 )
-
-// version 由构建时注入：-ldflags "-X main.version=v1.0.0"
-var version = "dev"
 
 func main() {
 	if err := run(); err != nil {
@@ -36,7 +34,7 @@ func run() error {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("ued-uninstaller %s (%s/%s)\n", version, runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("ued-uninstaller %s (%s/%s)\n", version.String(), runtime.GOOS, runtime.GOARCH)
 		return nil
 	}
 

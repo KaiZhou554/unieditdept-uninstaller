@@ -1,6 +1,7 @@
 # 构建产物
 /ued-uninstaller
 /ued-uninstaller.exe
+/ued-uninstaller.exe~
 /dist/
 render-dump.txt
 
