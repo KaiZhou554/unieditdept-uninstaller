@@ -1266,9 +1266,11 @@ func (m *Model) renderHeader(width int) string {
 	var sb strings.Builder
 	sb.WriteString("    ") // 与光标 + 选择框对齐
 	sb.WriteString(faint(components.Pad(m.txt.ColName, l.nameW)))
-	sb.WriteString(" " + faint(components.PadLeft(m.txt.ColSize, l.sizeW)))
+	sb.WriteString(" ")
+	sb.WriteString(faint(components.PadLeft(m.txt.ColSize, l.sizeW)))
 	if l.dateW > 0 {
-		sb.WriteString(" " + faint(components.PadLeft(m.txt.ColCreated, l.dateW)))
+		sb.WriteString(" ")
+		sb.WriteString(faint(components.PadLeft(m.txt.ColCreated, l.dateW)))
 	}
 	return components.Fit(components.StripANSI(sb.String()), width)
 }
@@ -1299,7 +1301,8 @@ func (m *Model) renderRow(sw core.Software, active bool, width int) string {
 		sb.WriteString(components.PadLeft(m.txt.Calculating, l.sizeW))
 	}
 	if l.dateW > 0 {
-		sb.WriteString(" " + m.dateText(sw.Created(), l))
+		sb.WriteString(" ")
+		sb.WriteString(m.dateText(sw.Created(), l))
 	}
 
 	plain := components.Fit(components.StripANSI(sb.String()), width)
