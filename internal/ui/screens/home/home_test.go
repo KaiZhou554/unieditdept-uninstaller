@@ -284,6 +284,18 @@ func TestHelpBackButton(t *testing.T) {
 		t.Errorf("返回按钮应在内容区顶部而不是底栏，实际 y=%d", back.y)
 	}
 
+	// 命中区域必须正好盖住按钮文字（含左箭头），否则点上去会落空。
+	rows := strings.Split(components.StripANSI(m.View()), "\n")
+	row := []rune(rows[back.y])
+	if back.x+back.w > len(row) {
+		t.Fatalf("命中区域越界：x=%d w=%d 行长=%d", back.x, back.w, len(row))
+	}
+	seg := string(row[back.x : back.x+back.w])
+	if !strings.Contains(seg, "?") || !strings.Contains(seg, "←") ||
+		!strings.Contains(seg, m.txt.HelpBack) {
+		t.Errorf("返回按钮命中区域与文字不对齐：%q", seg)
+	}
+
 	m, _ = clickHit(t, m, back)
 	if m.showHelp {
 		t.Error("单击返回后应关闭帮助")

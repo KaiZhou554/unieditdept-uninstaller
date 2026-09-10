@@ -1211,12 +1211,14 @@ func (m *Model) renderTask(width, height int) string {
 		add(" " + st.Faint.Render(fmt.Sprintf(m.txt.FolderMeasured, core.HumanSize(m.scanBytes))))
 
 	case phaseConfirm:
+		// 配色收敛成三层，避免红 / 白 / 粉 / 橙四种颜色并排显得杂乱：
+		// 红（状态警示）→ 亮粉白（要卸的东西，作为一个整体）→ 暗灰（辅助的倒计时）。
 		add(" " + st.Danger.Render(m.txt.ConfirmPending))
 		add("")
-		add(" " + st.Base.Render(fmt.Sprintf(m.txt.AppCount, core.HumanCount(core.SelectedCount(m.items)))))
-		add(" " + st.Subtle.Render(fmt.Sprintf(m.txt.WillFree, core.HumanSize(core.SelectedSize(m.items)))))
+		add(" " + st.Strong.Render(fmt.Sprintf(m.txt.AppCount, core.HumanCount(core.SelectedCount(m.items)))))
+		add(" " + st.Strong.Render(fmt.Sprintf(m.txt.WillFree, core.HumanSize(core.SelectedSize(m.items)))))
 		add("")
-		add(" " + st.Warn.Render(fmt.Sprintf(m.txt.AutoCancelIn,
+		add(" " + st.Faint.Render(fmt.Sprintf(m.txt.AutoCancelIn,
 			strconv.Itoa(m.confirmTTL/ui.FrameRate+1))))
 
 	case phaseDelete:
@@ -1349,12 +1351,15 @@ func (m *Model) helpLines() ([]string, helpBack) {
 	lines := make([]string, 0, len(entries)+6)
 	lines = append(lines, "")
 
+	// 返回按钮借用右上角语言切换器的徽章配色（灰底 + 亮字），
+	// 与下方不带底色的快捷键列表明显区分开，一眼就能认出这是可点的。
 	key := " ? "
-	lines = append(lines, "   "+st.Key.Render(key)+"  "+m.txt.HelpBack)
+	label := " ← " + m.txt.HelpBack + " "
+	lines = append(lines, "   "+st.Chip.Render(key)+st.ChipOn.Render(label))
 	back := helpBack{
 		line:  len(lines) - 1,
 		start: 3,
-		width: 3 + components.Width(key) + 2 + components.Width(m.txt.HelpBack),
+		width: 3 + components.Width(key) + components.Width(label),
 	}
 	lines = append(lines, "")
 
