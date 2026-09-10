@@ -33,10 +33,10 @@ var (
 	Warn   = lipgloss.Color("#ffc46b")
 	Danger = lipgloss.Color("#ff5d73")
 
-	// 二次确认时的闪烁配色。
+	// 二次确认时的光带配色：暗端压得足够低，光带扫过时才不刺眼。
 	FlashOn  = lipgloss.Color("#ff5d73")
-	FlashOff = lipgloss.Color("#c94f79")
-	FlashInk = lipgloss.Color("#2b0710")
+	FlashOff = lipgloss.Color("#5e1f38")
+	FlashInk = lipgloss.Color("#ffe0ea")
 )
 
 // Styles 聚合界面所需的全部样式。
@@ -58,10 +58,6 @@ type Styles struct {
 	Row     lipgloss.Style
 	RowSel  lipgloss.Style
 	Logo    lipgloss.Style
-
-	// FlashA / FlashB 是二次确认时交替出现的两套醒目配色。
-	FlashA lipgloss.Style
-	FlashB lipgloss.Style
 }
 
 var styles = sync.OnceValue(func() *Styles {
@@ -88,8 +84,6 @@ var styles = sync.OnceValue(func() *Styles {
 		Row:     lipgloss.NewStyle().Foreground(Text),
 		RowSel:  lipgloss.NewStyle().Foreground(PrimaryPale).Background(PrimaryDeep).Bold(true),
 		Logo:    lipgloss.NewStyle().Foreground(Primary),
-		FlashA:  lipgloss.NewStyle().Foreground(FlashInk).Background(FlashOn).Bold(true),
-		FlashB:  lipgloss.NewStyle().Foreground(PrimaryPale).Background(FlashOff).Bold(true),
 	}
 })
 

@@ -3,6 +3,7 @@ package components
 import (
 	"strings"
 
+	"github.com/unieditdept/ued-uninstaller/internal/ui/ascii"
 	"github.com/unieditdept/ued-uninstaller/internal/ui/theme"
 )
 
@@ -23,7 +24,6 @@ const itemSep = 2
 // tick 用于驱动告警项的闪烁。
 func Help(bindings []Binding, tick, maxWidth int) string {
 	st := theme.S()
-	blink := (tick/4)%2 == 0
 
 	var sb strings.Builder
 	width := 0
@@ -51,11 +51,8 @@ func Help(bindings []Binding, tick, maxWidth int) string {
 			width += itemSep
 		}
 		if b.Alert {
-			style := st.FlashB
-			if blink {
-				style = st.FlashA
-			}
-			sb.WriteString(style.Render(" " + text + " "))
+			// 用缓慢扫过的光带代替闪烁。
+			sb.WriteString(ascii.ScanHighlight(" "+text+" ", tick))
 		} else {
 			sb.WriteString(st.Key.Render(keys) + " " + st.KeyDesc.Render(b.Desc))
 		}

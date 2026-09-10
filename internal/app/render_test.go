@@ -9,11 +9,19 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 	"github.com/unieditdept/ued-uninstaller/internal/config"
 	"github.com/unieditdept/ued-uninstaller/internal/ui"
 	"github.com/unieditdept/ued-uninstaller/internal/ui/components"
 	"github.com/unieditdept/ued-uninstaller/internal/ui/screens/home"
 )
+
+// TestMain 强制真彩色：布局与 ANSI 完整性断言只有在真正产生转义序列时才有效。
+func TestMain(m *testing.M) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	os.Exit(m.Run())
+}
 
 // setupData 在临时目录中构造三个根位置的软件数据。
 func setupData(t *testing.T) (dirs []string) {
@@ -97,6 +105,12 @@ func press(s ui.Screen, key string) (ui.Screen, tea.Cmd) {
 func render(s ui.Screen, w, h int) []string {
 	next, _ := s.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	return strings.Split(next.View(), "\n")
+}
+
+// plainView 渲染并剥离 ANSI，便于做文本断言。
+// （扫描高亮会在字符之间插入转义序列，直接匹配子串会失败。）
+func plainView(s ui.Screen, w, h int) string {
+	return components.StripANSI(strings.Join(render(s, w, h), "\n"))
 }
 
 // checkFits 校验界面在指定尺寸下不溢出。
@@ -273,14 +287,19 @@ func TestHomeConfirmCancel(t *testing.T) {
 
 	// 进入列表后未做选择 → 按 D 会自动选中光标项 → 取消后应恢复为未选中。
 	screen, _ = press(screen, "d")
-	view := strings.Join(render(screen, 100, 30), "\n")
+	view := plainView(screen, 100, 30)
 	if !strings.Contains(view, "待确认") {
 		t.Error("待确认状态下应出现“待确认”提示")
 	}
 	screen, _ = press(screen, "x")
-	view = strings.Join(render(screen, 100, 30), "\n")
+	lines := render(screen, 100, 30)
+	view = components.StripANSI(strings.Join(lines, "\n"))
 	if !strings.Contains(view, "已取消") {
-		t.Error("取消后应给出提示")
+		t.Error("取消后应在右侧面板给出提示")
+	}
+	// 提示只出现在右侧面板，底部状态栏应恢复成按键说明。
+	if footer := components.StripANSI(lines[len(lines)-1]); strings.Contains(footer, "已取消") {
+		t.Errorf("取消提示不应占用底部状态栏：%q", footer)
 	}
 	if !strings.Contains(view, "已选 0 项") {
 		t.Errorf("取消后应清空临时选中的项\n%s", view)
@@ -301,13 +320,13 @@ func TestHomeConfirmPreservesUserSelection(t *testing.T) {
 	screen, _ = press(screen, " ")
 	screen, _ = press(screen, "j")
 	screen, _ = press(screen, " ")
-	view := strings.Join(render(screen, 100, 30), "\n")
+	view := plainView(screen, 100, 30)
 	if !strings.Contains(view, "已选 2 项") {
 		t.Errorf("手动选中 2 项失败:\n%s", view)
 	}
 
 	screen, _ = press(screen, "d") // 待确认
-	view = strings.Join(render(screen, 100, 30), "\n")
+	view = plainView(screen, 100, 30)
 	if !strings.Contains(view, "待确认") {
 		t.Errorf("应进入待确认\n%s", view)
 	}
@@ -316,7 +335,7 @@ func TestHomeConfirmPreservesUserSelection(t *testing.T) {
 	}
 
 	screen, _ = press(screen, "x") // 取消
-	view = strings.Join(render(screen, 100, 30), "\n")
+	view = plainView(screen, 100, 30)
 	if !strings.Contains(view, "已取消") {
 		t.Errorf("应显示已取消\n%s", view)
 	}

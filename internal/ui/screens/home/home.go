@@ -220,9 +220,10 @@ func (m *Model) tickTimers() {
 	}
 }
 
+// setMessage 在右侧面板显示一条临时提示。
 func (m *Model) setMessage(text string) {
 	m.message = text
-	m.messageTTL = 4 * ui.FrameRate
+	m.messageTTL = 3 * ui.FrameRate
 }
 
 // handleEvent 处理扫描与卸载事件。
@@ -685,11 +686,7 @@ func (m *Model) footerRight() string {
 
 // footerLeft 渲染底部左侧内容。reserved 是右侧统计信息已占用的宽度。
 func (m *Model) footerLeft(width, reserved int) string {
-	avail := width - reserved - 2
-	if m.message != "" {
-		return components.Help([]components.Binding{{Keys: []string{"!"}, Desc: m.message}}, m.tick, avail)
-	}
-	return components.Help(m.bindings(), m.tick, avail)
+	return components.Help(m.bindings(), m.tick, width-reserved-2)
 }
 
 // bindings 返回当前状态下可用的快捷键，由 Help 按宽度取舍。
@@ -833,11 +830,8 @@ func (m *Model) renderRow(sw core.Software, active bool, width int) string {
 	plain := components.Fit(components.StripANSI(sb.String()), width)
 	switch {
 	case m.phase == phaseConfirm && sw.Selected:
-		style := st.FlashB
-		if (m.tick/4)%2 == 0 {
-			style = st.FlashA
-		}
-		return style.Render(plain)
+		// 光带缓缓扫过，表示「这一条正等着你确认」。
+		return ascii.ScanHighlight(plain, m.tick)
 	case active:
 		return st.RowSel.Render(plain)
 	default:
@@ -892,6 +886,12 @@ func (m *Model) renderTask(width, height int) string {
 	lines := make([]string, 0, rows)
 	add := func(s string) { lines = append(lines, s) }
 
+	// 临时提示（例如「已取消卸载」）占用面板几秒，随后自动让位给正常内容。
+	if m.message != "" {
+		add(" " + st.Subtle.Render(components.Truncate(m.message, inner-2, "…")))
+		return strings.Join(lines, "\n")
+	}
+
 	switch m.phase {
 	case phaseScan:
 		ratio := 0.0
@@ -905,18 +905,13 @@ func (m *Model) renderTask(width, height int) string {
 		add(" " + st.Faint.Render("已统计 "+core.HumanSize(m.scanBytes)))
 
 	case phaseConfirm:
-		blink := (m.tick/4)%2 == 0
-		style := st.FlashB
-		if blink {
-			style = st.FlashA
-		}
 		add(" " + st.Danger.Render("待确认"))
 		add("")
 		add(" " + st.Base.Render(core.HumanCount(core.SelectedCount(m.items))+" 个软件"))
 		add(" " + st.Muted.Render(core.HumanCount(core.SelectedInstalls(m.items))+" 个目录"))
 		add(" " + st.Subtle.Render(core.HumanSize(core.SelectedSize(m.items))))
 		add("")
-		add(" " + style.Render(" "+strconv.Itoa(m.confirmTTL/ui.FrameRate+1)+" 秒后自动取消 "))
+		add(" " + st.Warn.Render(strconv.Itoa(m.confirmTTL/ui.FrameRate+1)+" 秒后自动取消"))
 
 	case phaseDelete:
 		ratio := 0.0

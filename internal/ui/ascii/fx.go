@@ -60,6 +60,76 @@ func Dissolve(s string, progress float64) string {
 	return erased + cursor + string(runes[cut+1:])
 }
 
+/* ------------------------------- 扫描光带 ------------------------------- */
+
+// scanPalette 是扫描光带用到的背景色档位（由暗到亮）。
+var scanPalette = sync.OnceValue(func() []lipgloss.Style {
+	colors := theme.Ramp(12, theme.FlashOff, theme.PrimaryDeep, theme.FlashOn)
+	styles := make([]lipgloss.Style, len(colors))
+	for i, c := range colors {
+		styles[i] = lipgloss.NewStyle().
+			Background(c).
+			Foreground(theme.FlashInk).
+			Bold(true)
+	}
+	return styles
+})
+
+// ScanHighlight 给文本套上一条缓慢扫过的高亮光带。
+//
+// 它用来替代「整块反复闪烁」：亮点在行内平移，亮度变化平缓，
+// 既能提示「这里需要再确认一次」，又不会一直刺激视觉。
+// 返回值不改变文本的显示宽度，因此不影响调用方的排版计算。
+func ScanHighlight(s string, tick int) string {
+	pal := scanPalette()
+	if s == "" || len(pal) == 0 {
+		return s
+	}
+	var out strings.Builder
+	var buf strings.Builder
+	current := -1
+	flush := func() {
+		if buf.Len() > 0 && current >= 0 {
+			out.WriteString(pal[current].Render(buf.String()))
+			buf.Reset()
+		}
+	}
+	for i, r := range []rune(s) {
+		idx := scanIndex(i, tick, len(pal))
+		if idx != current {
+			flush()
+			current = idx
+		}
+		buf.WriteRune(r)
+	}
+	flush()
+	return out.String()
+}
+
+// scanIndex 返回位置 i 在 tick 时刻所处的高亮档位。
+func scanIndex(i, tick, n int) int {
+	if n <= 1 {
+		return 0
+	}
+	// 光带跨度约 26 个字符，每秒前进约 14 个字符：慢到不抢注意力，又看得出在动。
+	const (
+		frequency = 0.24
+		speed     = 0.6
+	)
+	v := math.Sin((float64(i) - float64(tick)*speed) * frequency)
+	t := v*0.5 + 0.5
+	// 抬高对比，让亮带收窄，其余区域保持低调。
+	t = math.Pow(t, 2.2)
+	k := int(math.Round(t * float64(n-1)))
+	if k < 0 {
+		k = 0
+	}
+	if k >= n {
+		k = n - 1
+	}
+	return k
+}
+
 /* ------------------------------- 渐变着色 ------------------------------- */
 
 var palette = sync.OnceValue(func() []lipgloss.Style {

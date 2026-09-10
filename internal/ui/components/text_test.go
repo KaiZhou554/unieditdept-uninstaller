@@ -1,12 +1,28 @@
 package components
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 )
+
+// TestMain 强制使用真彩色，避免 lipgloss 在无 TTY 环境下退化为无色输出，
+// 让「截断不破坏 ANSI 序列」这类断言真正生效。
+func TestMain(m *testing.M) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	os.Exit(m.Run())
+}
+
+// TestStyledOutputIsColored 确认测试环境确实产生了着色输出。
+func TestStyledOutputIsColored(t *testing.T) {
+	if !strings.ContainsRune(lipgloss.NewStyle().Foreground(lipgloss.Color("#ff6699")).Render("x"), 0x1b) {
+		t.Fatal("未产生 ANSI 着色，后续断言将失去意义")
+	}
+}
 
 // TestWidthMatchesLipgloss 是本包最关键的约束：
 // 我们用来排版算宽度的函数，必须和 lipgloss/bubbletea 渲染时认为的宽度完全一致。

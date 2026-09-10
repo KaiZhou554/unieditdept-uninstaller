@@ -1,0 +1,115 @@
+package ascii
+
+import (
+	"os"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
+)
+
+// TestMain 强制使用真彩色。
+// 否则在无 TTY 的测试环境里 lipgloss 会降级为无色输出，
+// 断言「没有残留转义序列」之类的用例会变成空转。
+func TestMain(m *testing.M) {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	os.Exit(m.Run())
+}
+
+// TestScanHighlightKeepsWidth 是 ScanHighlight 最重要的约束：
+// 它只改颜色，绝不能改变显示宽度，否则调用方的排版会整体错位。
+func TestScanHighlightKeepsWidth(t *testing.T) {
+	samples := []string{
+		"↑/↓  移动",
+		"NovaEditor  8.00 KB  2026-09-10",
+		" 一个名字非常非常长的软件用来测试截断 ",
+		"D 确认卸载 3 项",
+		"",
+	}
+	for _, s := range samples {
+		want := ansi.StringWidth(s)
+		for tick := 0; tick < 120; tick++ {
+			if w := ansi.StringWidth(ScanHighlight(s, tick)); w != want {
+				t.Fatalf("tick=%d 时宽度由 %d 变为 %d", tick, want, w)
+			}
+		}
+	}
+}
+
+// TestScanHighlightANSIIntact 校验输出不会残留未闭合的转义序列。
+func TestScanHighlightANSIIntact(t *testing.T) {
+	s := "D 确认卸载 3 项 · 16.0 KB"
+	for tick := 0; tick < 120; tick++ {
+		got := ScanHighlight(s, tick)
+		if rest := stripAllSGR(got); strings.ContainsRune(rest, 0x1b) {
+			t.Fatalf("tick=%d 时残留未闭合序列：%q", tick, got)
+		}
+	}
+}
+
+// TestScanHighlightIsColored 确认测试环境确实产生了着色输出。
+func TestScanHighlightIsColored(t *testing.T) {
+	if !strings.ContainsRune(ScanHighlight("abc", 0), 0x1b) {
+		t.Fatal("扫描高亮未产生 ANSI 着色，后续断言将失去意义")
+	}
+}
+
+// TestScanHighlightMoves 校验光带随时间移动。
+// 直接检查纯函数，比对比渲染结果更稳定。
+func TestScanHighlightMoves(t *testing.T) {
+	const n = 12
+	before := make([]int, 40)
+	after := make([]int, 40)
+	for i := range before {
+		before[i] = scanIndex(i, 0, n)
+		after[i] = scanIndex(i, 20, n)
+	}
+	if reflect.DeepEqual(before, after) {
+		t.Error("光带应当随时间移动")
+	}
+}
+
+// TestScanIndexCoversRange 校验光带既有暗部也有亮部，而不是整片同色。
+func TestScanIndexCoversRange(t *testing.T) {
+	seen := map[int]bool{}
+	for i := 0; i < 64; i++ {
+		seen[scanIndex(i, 0, 12)] = true
+	}
+	if len(seen) < 5 {
+		t.Errorf("光带应覆盖多个亮度档，实际只有 %d 档", len(seen))
+	}
+}
+
+// TestScanHighlightEmpty 校验空串不会 panic。
+func TestScanHighlightEmpty(t *testing.T) {
+	if got := ScanHighlight("", 5); got != "" {
+		t.Errorf("空串应原样返回，实际 %q", got)
+	}
+}
+
+// stripAllSGR 移除完整的 SGR 序列；未闭合的 ESC 会被保留，便于断言发现。
+func stripAllSGR(s string) string {
+	var sb strings.Builder
+	runes := []rune(s)
+	for i := 0; i < len(runes); i++ {
+		if runes[i] != 0x1b {
+			sb.WriteRune(runes[i])
+			continue
+		}
+		if i+1 < len(runes) && runes[i+1] == '[' {
+			j := i + 2
+			for j < len(runes) && (runes[j] < 0x40 || runes[j] > 0x7e) {
+				j++
+			}
+			if j < len(runes) {
+				i = j
+				continue
+			}
+		}
+		sb.WriteRune(runes[i])
+	}
+	return sb.String()
+}
