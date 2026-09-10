@@ -89,6 +89,7 @@ var enStrings = &Strings{
 		{"S", "cycle sorting (size / name / date)"},
 		{"/", "filter by name, Esc clears"},
 		{"D", "remove: enter confirm state, press D again to run"},
+		{"P", "open the GitHub repository"},
 		{"L", "switch interface language"},
 		{"R", "rescan"},
 		{"Q / Ctrl+C", "quit"},

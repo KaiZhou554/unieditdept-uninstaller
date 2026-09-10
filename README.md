@@ -60,6 +60,7 @@ Animations can be disabled entirely with `-no-anim`.
 | `/` | filter by name, `Esc` clears |
 | `D` | remove: enter the confirm state, press again to run |
 | `L` | switch interface language (简体中文 / English) |
+| `P` | open the GitHub repository |
 | `R` | rescan |
 | `?` | help. The help page is read-only: it only responds to `?` (back), `L` (language) and `q` (quit); it also has a "← Back" button at the top, and clicking the title exits too |
 | `Q` / `Esc` / `Ctrl+C` | quit |
@@ -73,6 +74,7 @@ Animations can be disabled entirely with `-no-anim`.
 | Click an app row | move the cursor there and **toggle its selection** |
 | Click a bottom key hint | same as pressing that key (`Space` `A` `D` `/` `S` `I` `R` `?` `Q`, plus "any key" to cancel while confirming) |
 | Click the `L` badge | switch to the next language |
+| Click the `P` badge | open the repository (same as pressing `P`) |
 | Click 简体中文 / English | switch straight to that language |
 | Click `GitHub` | open the repository in the default browser |
 | Click the title | go back to the main view: close help / cancel a pending confirm / dismiss the result |
@@ -82,7 +84,7 @@ Hit testing uses the layout recorded while rendering, so clickable regions alway
 
 ## Interface language
 
-The top right always shows the `GitHub` link and the language switcher, e.g. `GitHub  L 简体中文 | English`: `GitHub` is underlined to signal it's clickable (opens the repo in your browser); the language part uses neutral-grey chips, with both the `L` hint and the current language carrying a background (the current one slightly brighter) while unselected languages don't — consistent with the bottom key hints, but kept neutral so it doesn't pull attention from the list. Press `L` to switch instantly, no restart needed.
+The top right shows, from left to right: the version number, a `P` hint, the `GitHub` link, and the language switcher — e.g. `260910    P  GitHub    L  简体中文 | English`. `GitHub` is underlined to signal it's clickable (opens the repo in your browser); the `P` chip immediately to its left does the same thing and is styled identically to `L`. Both are neutral-grey chips, as is the current language (unselected languages carry no background) — consistent with the bottom key hints, but kept neutral so it doesn't pull attention from the list. Press `P` or `L` to act instantly, no restart needed.
 
 You can also pick the initial language with `-lang en`. All UI strings live in `internal/i18n`; adding a language means adding one `Strings` value — a test reflects over the struct and fails if any field is untranslated.
 

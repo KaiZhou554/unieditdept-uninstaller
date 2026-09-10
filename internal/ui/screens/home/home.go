@@ -94,6 +94,7 @@ type headerHit struct {
 	lang         i18n.Lang
 	isKey        bool
 	link         string
+	click        string // hitBinding：点击时模拟按下的键
 }
 
 // Model 是主屏幕。
@@ -436,16 +437,7 @@ func (m *Model) activateHit(r hitRegion) (ui.Screen, tea.Cmd) {
 		return m.handleKey(keyMsgFor(r.click))
 
 	case hitLink:
-		if r.link == "" {
-			return m, nil
-		}
-		url := r.link
-		return m, func() tea.Msg {
-			if err := platform.OpenURL(url); err != nil {
-				slog.Warn("打开链接失败", "url", url, "err", err)
-			}
-			return nil
-		}
+		return m, m.openGitHub()
 
 	case hitTitle:
 		m.goHome()
@@ -469,6 +461,16 @@ func (m *Model) goHome() {
 		m.cancelConfirm(m.txt.Canceled)
 	case phaseDone:
 		m.phase = phaseIdle
+	}
+}
+
+// openGitHub 用默认浏览器打开项目仓库（等同于单击顶部的 GitHub 入口）。
+func (m *Model) openGitHub() tea.Cmd {
+	return func() tea.Msg {
+		if err := platform.OpenURL(githubURL); err != nil {
+			slog.Warn("打开链接失败", "url", githubURL, "err", err)
+		}
+		return nil
 	}
 }
 
@@ -514,6 +516,9 @@ func (m *Model) handleKey(msg tea.KeyMsg) (ui.Screen, tea.Cmd) {
 			m.showHelp = false
 		case "l", "L":
 			m.setLang(m.lang.Next())
+		case "p", "P":
+			// 顶部入口在帮助页也看得见，所以这里同样放行；打开浏览器是只读操作。
+			return m, m.openGitHub()
 		case "q", "Q", "esc":
 			return m, ui.Quit()
 		}
@@ -555,6 +560,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (ui.Screen, tea.Cmd) {
 		m.showHelp = !m.showHelp
 	case "l", "L":
 		m.setLang(m.lang.Next())
+	case "p", "P":
+		return m, m.openGitHub()
 	case "r", "R":
 		return m, ui.Rescan()
 	case "d", "D":
@@ -1004,7 +1011,7 @@ func (m *Model) rebuildHits(ctx hitContext) {
 		for _, h := range ctx.headHits {
 			m.hits = append(m.hits, hitRegion{
 				kind: h.kind, x: start + h.start, y: 0, w: h.width, h: 1,
-				lang: h.lang, next: h.isKey, link: h.link,
+				lang: h.lang, next: h.isKey, link: h.link, click: h.click,
 			})
 		}
 	}
@@ -1090,6 +1097,12 @@ func (m *Model) headerRight() (string, []headerHit) {
 
 	// 版本号（构建日期）：中性灰，与右侧其余元素同一调性，不抢注意力。
 	write(st.Neutral.Render(version.String()) + "   ")
+
+	// P 键提示，与下面的 L 同款（带底色的中性灰小徽章）：
+	// 它和紧邻的 GitHub 入口是一组，所以并排放在入口左侧。
+	pKey := st.Chip.Render(" P ")
+	hits = append(hits, headerHit{start: col, width: components.Width(pKey), kind: hitBinding, click: "p"})
+	write(pKey + " ")
 
 	// GitHub 入口：与未选中的语言同色，带下划线暗示可点击。
 	gh := st.ChipOff.Underline(true).Render(m.txt.LinkGitHub)

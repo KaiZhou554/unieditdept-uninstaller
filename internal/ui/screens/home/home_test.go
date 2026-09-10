@@ -318,6 +318,64 @@ func TestExternalSection(t *testing.T) {
 	}
 }
 
+// TestOpenGitHubKey 校验顶部有可点击的 P 提示、按 P 会打开仓库。
+func TestOpenGitHubKey(t *testing.T) {
+	setupData(t)
+	m := ready(t)
+
+	// 按 P 应产生打开仓库的命令。刻意不执行它，免得测试真的弹出浏览器。
+	if _, cmd := press(m, "p"); cmd == nil {
+		t.Error("按 P 应产生打开仓库的命令")
+	}
+	if _, cmd := press(m, "P"); cmd == nil {
+		t.Error("大写 P 同样应生效")
+	}
+
+	// 顶部应有一枚可点击的 P 提示，位于 GitHub 入口左侧。
+	pHit, ok := findHit(m, hitBinding, func(r hitRegion) bool { return r.click == "p" })
+	if !ok {
+		t.Fatal("顶部应有 P 提示")
+	}
+	if pHit.y != 0 {
+		t.Errorf("P 提示应在标题栏，实际 y=%d", pHit.y)
+	}
+	ghHit, ok := findHit(m, hitLink, nil)
+	if !ok {
+		t.Fatal("顶部应有 GitHub 入口")
+	}
+	if pHit.x >= ghHit.x {
+		t.Errorf("P 提示应在 GitHub 入口左侧，实际 p.x=%d gh.x=%d", pHit.x, ghHit.x)
+	}
+
+	// 与 L 徽章同款：渲染串应当就是 Chip 样式套上 " P "。
+	st := theme.S()
+	if !strings.Contains(m.View(), st.Chip.Render(" P ")) {
+		t.Error("P 提示应使用与 L 徽章相同的 Chip 样式")
+	}
+	if !strings.Contains(m.View(), st.Chip.Render(" L ")) {
+		t.Error("L 徽章仍应是 Chip 样式")
+	}
+
+	// 帮助页里 P 同样可用（顶部入口在帮助页也看得见），且列表里有这一条。
+	help, _ := press(m, "?")
+	if !help.showHelp {
+		t.Fatal("应进入帮助页")
+	}
+	if _, cmd := press(help, "p"); cmd == nil {
+		t.Error("帮助页里按 P 也应生效")
+	}
+	listed := false
+	for _, e := range help.txt.HelpEntries {
+		if e[0] == "P" {
+			listed = true
+			break
+		}
+	}
+	if !listed {
+		t.Error("帮助页的快捷键列表应包含 P")
+	}
+}
+
 // TestExternalNoticeSpacing 校验提示与下面的条目之间只空一行。
 // 提示区行数曾经写死成四行，宽窗口下文案只占一行，于是多出两个空行。
 func TestExternalNoticeSpacing(t *testing.T) {
