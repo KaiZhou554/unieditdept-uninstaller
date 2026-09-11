@@ -36,7 +36,6 @@ var zhStrings = &Strings{
 	Freed:          "已释放 %s",
 	RemovedDirs:    "删除 %s 个目录",
 	Elapsed:        "耗时 %s",
-	PrunedDirs:     "清理空目录 %s 个",
 	FailedCount:    "失败 %s 项",
 	MoreItems:      "… 另有 %s 项",
 	ExternalNotice: "这些软件并非 UniEditDept 开发，请谨慎清理。",

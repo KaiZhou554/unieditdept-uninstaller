@@ -1435,12 +1435,10 @@ func (m *Model) renderTask(width, height int) string {
 		}
 		add(" " + st.OK.Render(headline))
 		add("")
-		add(" " + st.Muted.Render(fmt.Sprintf(m.txt.RemovedDirs, core.HumanCount(res.Deleted))))
-		add(" " + st.Muted.Render(fmt.Sprintf(m.txt.Freed, core.HumanSize(res.Freed))))
-		add(" " + st.Muted.Render(fmt.Sprintf(m.txt.Elapsed, res.Elapsed.Round(time.Millisecond).String())))
-		if len(res.Pruned) > 0 {
-			add(" " + st.Faint.Render(fmt.Sprintf(m.txt.PrunedDirs, core.HumanCount(len(res.Pruned)))))
-		}
+		// 释放了多少是最重要的数字，放最上并用亮色；目录数与耗时压暗一档。
+		add(" " + st.Strong.Render(fmt.Sprintf(m.txt.Freed, core.HumanSize(res.Freed))))
+		add(" " + st.Faint.Render(fmt.Sprintf(m.txt.Elapsed, res.Elapsed.Round(time.Millisecond).String())))
+		add(" " + st.Faint.Render(fmt.Sprintf(m.txt.RemovedDirs, core.HumanCount(res.Deleted))))
 		if len(res.Failures) > 0 {
 			add("")
 			add(" " + st.Danger.Render(fmt.Sprintf(m.txt.FailedCount, core.HumanCount(len(res.Failures)))))

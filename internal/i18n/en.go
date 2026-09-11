@@ -39,7 +39,6 @@ var enStrings = &Strings{
 	Freed:          "Freed %s",
 	RemovedDirs:    "Removed %s folder(s)",
 	Elapsed:        "Took %s",
-	PrunedDirs:     "Pruned %s empty folder(s)",
 	FailedCount:    "Failed: %s",
 	MoreItems:      "… %s more",
 	ExternalNotice: "These apps are not made by UniEditDept — clean them with care.",
